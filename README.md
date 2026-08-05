@@ -129,8 +129,21 @@ reproduce it locally.
 `req.originalUrl`. `?email=` is a real pattern in this fleet, and a log line gets
 copied far more than a URL bar does.
 
-Both are covered by tests that assert the sensitive value is absent from the
-emitted JSON, so a regression fails CI rather than quietly shipping.
+**Secret-looking path segments are redacted to `:id`** — added after review found
+`mule-quarterly` writing its `/reports/<64-hex HMAC>` capability tokens straight
+into the log source. This is **best-effort by shape, not a guarantee.** It
+catches what the fleet actually emits — hex strings of 16+ chars, UUIDs, and long
+mixed-case-and-digit tokens — and deliberately leaves ordinary slugs, dates and
+short ids readable. It will **miss** an all-lowercase-and-digit token or a
+base64 token with `+`/`/`, because widening it far enough to catch those would
+start eating legitimate readable paths (a cost the "leaves readable paths alone"
+mutation guards against). If you add a route that puts an opaque token in the
+path, do not rely on this — keep the token out of the path, or add its shape to
+`looksLikeSecret`.
+
+All three are covered by tests that assert the sensitive value is absent from the
+emitted JSON, each backed by a mutation, so a regression fails CI rather than
+quietly shipping.
 
 ## Crash semantics
 

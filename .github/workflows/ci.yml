@@ -1,0 +1,75 @@
+# Continuous integration for mule-fleet-kit.
+#
+# Same shape as mule-portal-auth's, deliberately: this repo is consumed the same
+# way (a GitHub tag dependency serving committed dist/), so it needs the same
+# guard against dist drifting away from src.
+#
+# Every step here was run locally against this repo before being added.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Supersede an in-flight run when new commits land on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck, tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test suite
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+      # Consumers install the committed dist, not a build from source, so stale
+      # dist means every app is running code nobody reviewed.
+      - name: Fail on stale committed dist
+        run: |
+          if [ -n "$(git status --porcelain --untracked-files=all -- dist)" ]; then
+            git status --short --untracked-files=all -- dist
+            exit 1
+          fi
+
+  # Separate job so a newly-published advisory cannot mask a real test failure.
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high

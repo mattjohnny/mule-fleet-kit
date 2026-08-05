@@ -1,0 +1,6 @@
+node_modules/
+
+# dist/ is deliberately NOT ignored. Apps consume this package as a GitHub tag
+# dependency (github:mattjohnny/mule-fleet-kit#vX.Y.Z), which serves the repo
+# contents as-is — so the built output has to be committed. CI fails the build if
+# dist ever drifts from src.

@@ -21,6 +21,7 @@ export {
   buildSha,
   installRequestTelemetry,
   logEvent,
+  redactPath,
   requestId,
   startRuntimeTelemetry,
   type LogLevel,

@@ -122,6 +122,8 @@ before(async () => {
   app.get("/throw-plain", () => {
     throw new TypeError("plain failure");
   });
+  // Stands in for mule-quarterly's /reports/<64-hex HMAC> capability route.
+  app.get("/reports/:token", (_req, res) => res.json({ ok: true }));
 
   // Routes registered ABOVE this line are covered; that is the contract.
   installErrorTelemetry(app);
@@ -215,6 +217,20 @@ describe("aborted requests", () => {
   it("emits exactly one line per request, not one per event", async () => {
     const { lines } = await record(() => request("/ok"));
     assert.equal(lines.filter((l) => l.event === "http_request").length, 1);
+  });
+});
+
+describe("secrets in the path", () => {
+  // Unit-testing redactPath is not enough: the defect was that the emitted line
+  // carried the raw path. Mutation testing caught the gap — removing the call
+  // site left the unit tests green.
+  it("the emitted line carries a redacted path, not the token", async () => {
+    const token = "a3f5c1e9b7d24680a3f5c1e9b7d24680a3f5c1e9b7d24680a3f5c1e9b7d24680";
+    const { lines } = await record(() => request(`/reports/${token}`));
+    const line = lines.find((l) => l.event === "http_request");
+    assert.ok(line, "the request was logged");
+    assert.equal(line.path, "/reports/:id");
+    assert.ok(!JSON.stringify(line).includes(token), "the token must not appear anywhere");
   });
 });
 

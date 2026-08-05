@@ -16,6 +16,6 @@
 //   await runTrackedJob("nightly-roster", () => captureRoster(), {
 //     heartbeatUrl: process.env.ROSTER_HEARTBEAT_URL,
 //   });
-export { buildSha, installRequestTelemetry, logEvent, requestId, startRuntimeTelemetry, } from "./telemetry.js";
+export { buildSha, installRequestTelemetry, logEvent, redactPath, requestId, startRuntimeTelemetry, } from "./telemetry.js";
 export { errorFields, errorSite, installErrorTelemetry, installProcessErrorHandlers, safeErrorName, } from "./errors.js";
 export { pingHeartbeat, runTrackedJob, } from "./jobs.js";

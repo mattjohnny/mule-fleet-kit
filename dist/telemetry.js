@@ -139,6 +139,75 @@ export function requestId(res) {
     const value = res.locals?.requestId;
     return typeof value === "string" ? value : undefined;
 }
+/**
+ * Does this path segment look like a secret rather than a name?
+ *
+ * The header of this file reasons carefully about keeping the QUERY string out
+ * of logs, and never considered that a secret might be in the path itself. It
+ * can be: `mule-quarterly` routes reports at `/reports/<64-hex HMAC>`, which its
+ * own docs call "keyed pseudonyms" — so every bookmark, refresh and direct link
+ * wrote a capability token into the log source, where read access is a far wider
+ * group than database access and the keys do not rotate.
+ *
+ * Redacting by shape rather than by configuration is deliberate: the app that
+ * has this problem is the one least likely to remember to opt in.
+ *
+ * The tests are anchored, character-class only and length-bounded — no
+ * backtracking, after what the error-site regex cost.
+ */
+const HEX_TOKEN = /^[A-Fa-f0-9]{16,}$/;
+const UUID = /^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$/;
+function looksLikeSecret(segment) {
+    if (segment.length < 16 || segment.length > 512)
+        return false;
+    if (UUID.test(segment))
+        return true;
+    if (HEX_TOKEN.test(segment))
+        return true;
+    // High-entropy opaque tokens: long, and mixing cases with digits. An ordinary
+    // slug like "seasonal-autumn-tasting" is lower-case words and stays readable.
+    if (segment.length < 24)
+        return false;
+    let hasUpper = false;
+    let hasDigit = false;
+    for (let i = 0; i < segment.length; i += 1) {
+        const code = segment.charCodeAt(i);
+        if (code >= 65 && code <= 90)
+            hasUpper = true;
+        else if (code >= 48 && code <= 57)
+            hasDigit = true;
+        else if (!((code >= 97 && code <= 122) || code === 95 || code === 45))
+            return false;
+    }
+    return hasUpper && hasDigit;
+}
+/** Replace secret-looking path segments with `:id`. */
+export function redactPath(path) {
+    if (!path || path.length > 2048)
+        return path;
+    if (path.indexOf("/") === -1)
+        return looksLikeSecret(path) ? ":id" : path;
+    return path
+        .split("/")
+        .map((segment) => (looksLikeSecret(segment) ? ":id" : segment))
+        .join("/");
+}
+/**
+ * One `http_request` line per response — finished OR aborted — and an
+ * `X-Request-ID` header.
+ *
+ * Install this BEFORE the routes, and before the body parsers: Express runs
+ * middleware in registration order, so a request rejected for an oversized
+ * payload never reaches anything registered later, and that 413 is exactly the
+ * one worth seeing.
+ *
+ * An inbound `X-Request-ID` is honoured so a chain of calls shares one id. It is
+ * length-capped and never parsed, so a hostile value is a nuisance at worst, but
+ * it does mean the id is caller-controlled and not proof of anything.
+ *
+ * Logged paths are passed through `redactPath`, so a capability token sitting in
+ * a path segment does not reach the log source.
+ */
 export function installRequestTelemetry(app, options = {}) {
     const quiet = new Set(options.ignoreSuccessfulPaths ?? ["/health"]);
     app.use((req, res, next) => {
@@ -167,7 +236,7 @@ export function installRequestTelemetry(app, options = {}) {
                 request_id: id,
                 cf_ray: requestHeader(req, "cf-ray"),
                 method: req.method,
-                path: req.path,
+                path: redactPath(req.path),
                 // On an abort the status is what we intended to send, not what arrived.
                 status: res.statusCode,
                 duration_ms: durationMs,

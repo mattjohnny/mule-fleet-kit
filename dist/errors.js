@@ -17,7 +17,7 @@
 // (When @mule/portal-auth next moves, its copy should import from here. Two
 // copies in shared packages beats fourteen copies in apps, which is the drift
 // this package exists to end.)
-import { logEvent, requestId } from "./telemetry.js";
+import { logEvent, redactPath, requestId } from "./telemetry.js";
 const SAFE_ERROR_NAMES = new Set([
     "AbortError",
     "AccessDeniedException",
@@ -293,7 +293,7 @@ export function installErrorTelemetry(app) {
         logEvent(status >= 500 ? "error" : "warn", "unhandled_error", {
             request_id: requestId(res),
             method: req.method,
-            path: req.path,
+            path: redactPath(req.path),
             status,
             headers_sent: res.headersSent,
             ...errorFields(error),

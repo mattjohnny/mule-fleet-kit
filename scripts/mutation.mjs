@@ -20,6 +20,12 @@ import { fileURLToPath } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const file = (name) => path.join(root, "src", name);
 
+// Anchors below are written with LF. A Windows checkout stores CRLF, so every
+// multi-line anchor would silently miss — and a missed anchor reads as a
+// surviving mutation, i.e. a false alarm that hides real ones.
+const CRLF = String.fromCharCode(13, 10);
+const LF = String.fromCharCode(10);
+
 const MUTATIONS = [
   {
     name: "errorSite reads the message as well as the stack (the data leak)",
@@ -128,6 +134,18 @@ const MUTATIONS = [
     },
   },
   {
+    name: "path secrets are no longer redacted (capability tokens in logs)",
+    file: "telemetry.ts",
+    from: "        path: redactPath(req.path),",
+    to: "        path: req.path,",
+  },
+  {
+    name: "redactPath eats ordinary readable paths",
+    file: "telemetry.ts",
+    from: "  if (segment.length < 24) return false;",
+    to: "  if (segment.length < 4) return false;",
+  },
+  {
     name: "the heartbeat sends GET instead of POST",
     file: "jobs.ts",
     from: '      method: "POST",',
@@ -202,7 +220,9 @@ const survivors = [];
 for (const mutation of MUTATIONS) {
   restore();
   const target = file(mutation.file);
-  let text = fs.readFileSync(target, "utf8");
+  // Normalize CRLF before matching: multi-line anchors silently miss on
+  // Windows checkouts otherwise, and a stale anchor reads as a survivor.
+  let text = fs.readFileSync(target, "utf8").split(CRLF).join(LF);
 
   if (!text.includes(mutation.from)) {
     console.log(`??  ${mutation.name}\n    (anchor not found — mutation is stale)`);

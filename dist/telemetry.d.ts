@@ -25,17 +25,8 @@ export declare function logEvent(level: LogLevel, event: string, fields?: Record
  * can be joined to its `http_request` line.
  */
 export declare function requestId(res: Response): string | undefined;
-/**
- * One `http_request` line per finished response, and an `X-Request-ID` header.
- *
- * Install this BEFORE the routes — Express runs middleware in registration
- * order, and a response that finishes inside an earlier handler never reaches a
- * later one.
- *
- * An inbound `X-Request-ID` is honoured so a chain of calls shares one id. It is
- * length-capped and never parsed, so a hostile value is a nuisance at worst, but
- * it does mean the id is caller-controlled and not proof of anything.
- */
+/** Replace secret-looking path segments with `:id`. */
+export declare function redactPath(path: string): string;
 export interface RequestTelemetryOptions {
     /**
      * Paths whose SUCCESSFUL responses produce no line. Failures on these paths
@@ -54,6 +45,22 @@ export interface RequestTelemetryOptions {
      */
     ignoreSuccessfulPaths?: string[];
 }
+/**
+ * One `http_request` line per response — finished OR aborted — and an
+ * `X-Request-ID` header.
+ *
+ * Install this BEFORE the routes, and before the body parsers: Express runs
+ * middleware in registration order, so a request rejected for an oversized
+ * payload never reaches anything registered later, and that 413 is exactly the
+ * one worth seeing.
+ *
+ * An inbound `X-Request-ID` is honoured so a chain of calls shares one id. It is
+ * length-capped and never parsed, so a hostile value is a nuisance at worst, but
+ * it does mean the id is caller-controlled and not proof of anything.
+ *
+ * Logged paths are passed through `redactPath`, so a capability token sitting in
+ * a path segment does not reach the log source.
+ */
 export declare function installRequestTelemetry(app: Express, options?: RequestTelemetryOptions): void;
 /**
  * A `node_runtime` sample every minute: event-loop delay, utilization, memory.

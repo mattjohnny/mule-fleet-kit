@@ -8,7 +8,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { performance } from "node:perf_hooks";
 
-import { errorFields, errorSite, logEvent, safeErrorName } from "../dist/index.js";
+import {
+  errorFields,
+  errorSite,
+  logEvent,
+  redactPath,
+  safeErrorName,
+} from "../dist/index.js";
 
 function captured(run) {
   const lines = [];
@@ -199,5 +205,61 @@ describe("errorFields never throws", () => {
     Object.defineProperty(hostile, "name", { get() { throw new Error("name"); } });
     const fields = errorFields(hostile);
     assert.equal(fields.error_name, "Error");
+  });
+});
+
+// --- secrets in the path ------------------------------------------------------
+
+describe("redactPath", () => {
+  // mule-quarterly routes reports at /reports/<64-hex HMAC>, which its own docs
+  // call keyed pseudonyms. Every bookmark and refresh wrote one to the log.
+  it("redacts a capability token in a path segment", () => {
+    const token = "a3f5c1e9b7d24680a3f5c1e9b7d24680a3f5c1e9b7d24680a3f5c1e9b7d24680";
+    assert.equal(redactPath(`/reports/${token}`), "/reports/:id");
+  });
+
+  it("redacts a UUID", () => {
+    assert.equal(redactPath("/api/shift/550e8400-e29b-41d4-a716-446655440000"), "/api/shift/:id");
+  });
+
+  it("redacts a long mixed-case opaque token", () => {
+    assert.equal(redactPath("/d/xK9mQ2vB7nR4tY6wZ1aS3dF5"), "/d/:id");
+  });
+
+  it("leaves ordinary readable paths alone", () => {
+    assert.equal(redactPath("/api/locations/burlington"), "/api/locations/burlington");
+    assert.equal(redactPath("/menu/seasonal-autumn-tasting"), "/menu/seasonal-autumn-tasting");
+    assert.equal(redactPath("/health"), "/health");
+    assert.equal(redactPath("/api/reports/2026-08-05"), "/api/reports/2026-08-05");
+  });
+
+  it("leaves short ids readable, so ordinary debugging still works", () => {
+    assert.equal(redactPath("/api/entry/4821"), "/api/entry/4821");
+  });
+});
+
+describe("redactPath keeps short readable segments", () => {
+  // Guards the length threshold: dropping it would redact ordinary segments and
+  // make every log line useless for debugging.
+  it("leaves a short mixed-case-and-digit segment alone", () => {
+    assert.equal(redactPath("/api/wk/A1b2"), "/api/wk/A1b2");
+    assert.equal(redactPath("/loc/Burro2"), "/loc/Burro2");
+  });
+
+  // Between the two length gates (16 and 24). Mixed case and digits, but far too
+  // short to be an opaque token — a real name. The lower gate masks the upper
+  // one for anything under 16 characters, so this is the only length band that
+  // actually exercises the 24-character threshold.
+  it("leaves a readable name in the 16-23 character band alone", () => {
+    for (const name of ["Autumn2026MenuSpec", "Burlington2026Xyz", "Q3Report2026Draft"]) {
+      // Assert the fixture is in the band, rather than trusting a hand count —
+      // the first two attempts at this test were silently under 16 characters
+      // and so were masked by the lower gate, letting the mutation survive.
+      assert.ok(
+        name.length >= 16 && name.length < 24,
+        `fixture "${name}" is ${name.length} chars, outside the band this test exists to cover`
+      );
+      assert.equal(redactPath(`/x/${name}`), `/x/${name}`);
+    }
   });
 });

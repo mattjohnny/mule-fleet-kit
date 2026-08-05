@@ -19,7 +19,7 @@
 // this package exists to end.)
 
 import type { Express, NextFunction, Request, Response } from "express";
-import { logEvent, requestId } from "./telemetry.js";
+import { logEvent, redactPath, requestId } from "./telemetry.js";
 
 const SAFE_ERROR_NAMES = new Set([
   "AbortError",
@@ -292,7 +292,7 @@ export function installErrorTelemetry(app: Express): void {
     logEvent(status >= 500 ? "error" : "warn", "unhandled_error", {
       request_id: requestId(res),
       method: req.method,
-      path: req.path,
+      path: redactPath(req.path),
       status,
       headers_sent: res.headersSent,
       ...errorFields(error),

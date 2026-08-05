@@ -43,6 +43,13 @@ jobs:
       - name: Test suite
         run: npm test
 
+      # The suite is only evidence if a deliberate breakage fails it. v0.1.0
+      # shipped 25 green tests that 12 of 18 breakages walked straight through,
+      # so this gate is the difference between a suite and a decoration. See the
+      # verification bar in mule-fleet-docs/standards.md.
+      - name: Mutation testing
+        run: npm run mutation
+
       - name: Production build
         run: npm run build
 

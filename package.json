@@ -1,6 +1,6 @@
 {
   "name": "@mule/fleet-kit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Shared bricks for The Mule's app fleet — structured logging, error telemetry, and background-job heartbeats (mule-fleet-docs jobs.md §3).",
   "type": "module",
   "main": "dist/index.js",
@@ -19,7 +19,9 @@
     "build": "npm run clean && tsc -p tsconfig.json",
     "prepare": "npm run build",
     "test": "npm run build && node --test test/*.test.js",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "mutation": "node scripts/mutation.mjs",
+    "verify": "npm run typecheck && npm test && npm run mutation"
   },
   "peerDependencies": {
     "express": ">=4"
@@ -27,6 +29,7 @@
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^22.10.2",
+    "express": "^4.22.2",
     "typescript": "^5.7.2"
   },
   "engines": {

@@ -1,32 +1,16 @@
 import type { Express } from "express";
-/** An allow-listed error name, or "Error" for anything unrecognized. */
 export declare function safeErrorName(error: unknown): string;
-/**
- * Where the error came from: `file.ts:line`, from the first stack frame that is
- * the app's own code.
- *
- * Frames in node_modules and node: internals are skipped — the top frame of a
- * database error is inside the driver, which tells you nothing about your bug.
- * Absolute paths are trimmed to the last two segments, both because Render's
- * paths are long and identical across apps, and so a build path never becomes a
- * log field.
- *
- * Returns undefined rather than guessing when there is no usable stack.
- */
 export declare function errorSite(error: unknown): string | undefined;
-/** The two fields every error line carries. Safe to spread into any event. */
-export declare function errorFields(error: unknown): Record<string, unknown>;
 /**
- * Log an `unhandled_error` line for anything that reaches Express's error path.
+ * The two fields every error line carries. Safe to spread into any event.
  *
- * INSTALL THIS AFTER THE ROUTES AND BEFORE THE APP'S OWN ERROR HANDLER. It logs
- * and then calls next(err), so whatever already decides the response keeps
- * deciding it — this changes what you can see, never what the caller receives.
- *
- * If the response has already been sent, Express is unwinding a broken response
- * and only the log line is possible; next(err) still runs so the default handler
- * can destroy the socket.
+ * This must never throw. It is called from inside the `uncaughtException`
+ * handler, and a throw there is fatal in the ugliest possible way: the process
+ * died with exit code 7, no structured line, and a raw stack on stderr — the
+ * exact outcome this package exists to replace. Both helpers already guard
+ * their own property reads; this is the belt to their braces.
  */
+export declare function errorFields(error: unknown): Record<string, unknown>;
 export declare function installErrorTelemetry(app: Express): void;
 /**
  * Log process-level failures that no request owns.

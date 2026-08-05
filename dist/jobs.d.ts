@@ -27,5 +27,18 @@ export declare function pingHeartbeat(url: string | undefined, job: string): Pro
  *
  * The original error is always re-thrown. This observes a job; it does not
  * change whether a failure propagates.
+ *
+ * ⚠ THE JOB MUST ACTUALLY REJECT WHEN IT FAILS. This is the sharpest edge in the
+ * package, and it drew blood on first use: `mule-workback`'s backup already
+ * caught its own failures internally and resolved anyway, so wrapping it here
+ * produced `job_finished` and a GREEN HEARTBEAT for backups that never happened
+ * — a monitoring system reporting health for the exact failure it was installed
+ * to catch. Wrapping a function whose contract is "never throws" buys nothing
+ * and actively lies.
+ *
+ * Before wrapping, read the function. If it swallows, either make it re-throw or
+ * have it return a result the caller checks and rejects on. If you cannot, pass
+ * no `heartbeatUrl` — the log lines are still worth having, and an absent
+ * heartbeat is honest where a green one is not.
  */
 export declare function runTrackedJob<T>(job: string, run: () => Promise<T>, options?: TrackedJobOptions): Promise<T>;

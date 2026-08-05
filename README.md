@@ -11,8 +11,15 @@ in-app half.
 ## Install
 
 ```bash
-npm install github:mattjohnny/mule-fleet-kit#v0.1.0
+npm install github:mattjohnny/mule-fleet-kit#v0.2.0
 ```
+
+**Do not use `v0.1.0.`** Review found a quadratic regex reachable from any route
+that puts request text in an error message (12.8 seconds of blocked event loop
+from one request), error messages reaching the log through multi-line stacks,
+every 4xx logged as a 500, and `logEvent` able to throw from inside a `finish`
+listener. All fixed in `v0.2.0`; the details are in the source comments, because
+the reasoning matters more than the diff.
 
 Pin the tag, the way apps pin `@mule/portal-auth`. Never track `main` — a shared
 dependency that moves on its own turns one bad commit into fourteen incidents.
@@ -60,6 +67,16 @@ Emits `job_started`, then `job_finished` or `job_failed`, and pings the heartbea
 **only on success**. With no `heartbeatUrl` it still logs and just skips the ping,
 so an app runs unconfigured and locally.
 
+> ⚠ **The job must actually reject when it fails.** This is the sharpest edge
+> here and it drew blood on first use: `mule-workback`'s backup already caught
+> its own failures internally and resolved anyway, so wrapping it produced
+> `job_finished` and a **green heartbeat for backups that never happened** — a
+> monitoring system reporting health for the exact failure it was installed to
+> catch. Read the function before wrapping it. If it swallows, make it re-throw
+> or return a result the caller checks. If you can't, pass no `heartbeatUrl`: the
+> log lines are still worth having, and an absent heartbeat is honest where a
+> green one is not.
+
 Create the heartbeat in Better Stack, set its period to the job's schedule plus
 slack, and put its URL in the app's environment. **Leave it paused until the ping
 is deployed** — an unpaused heartbeat with nothing pinging it raises an incident
@@ -69,9 +86,9 @@ as soon as its period elapses.
 
 | event | level | when |
 | --- | --- | --- |
-| `http_request` | info, `warn` at ≥1s or 5xx | every finished response |
+| `http_request` | info, `warn` at ≥1s / 5xx / aborted | every response that finishes **or** is aborted |
 | `node_runtime` | info, `warn` on a ≥500ms stall | every 60s |
-| `unhandled_error` | error | anything reaching Express's error path |
+| `unhandled_error` | `error` at 5xx, `warn` at 4xx | anything reaching Express's error path |
 | `unhandled_rejection` | error | a promise rejection nobody caught |
 | `uncaught_exception` | error | a throw nobody caught |
 | `job_started` / `job_finished` | info | `runTrackedJob` |
@@ -79,8 +96,25 @@ as soon as its period elapses.
 | `heartbeat_ping_failed` | warn | the ping failed; the heartbeat itself is the alert |
 
 Every line carries `timestamp`, `level`, `event`, `build`, `service_id` and
-`instance_id`. Request-scoped lines carry `request_id`; use `requestId(res)` to
-put it on your own lines so they join up.
+`instance_id`, and a caller field cannot overwrite any of them — a colliding key
+is prefixed `field_` so a line can never contradict the stream it was written to.
+Request-scoped lines carry `request_id`; use `requestId(res)` to put it on your
+own lines so they join up.
+
+**Streams:** `info` on stdout, `warn` and `error` on stderr — Node's
+`console.warn` is an alias for `console.error`. Verified from a child process
+reading real file descriptors, because the previous in-process test asserted a
+mapping it had defined itself, and the mapping was wrong.
+
+**Successful `/health` responses are not logged.** They were 98.3% of one app's
+volume — 14,701 lines in 24 hours against 206 for `/api/*` — on a platform that
+bills by volume. A *failing* health check is always logged. Override with
+`installRequestTelemetry(app, { ignoreSuccessfulPaths: [...] })`.
+
+**Aborted requests are logged** with `aborted: true`. Listening only for `finish`
+meant a client disconnecting mid-response produced no line at all, which hid
+exactly the failures most likely to be invisible: client timeouts, Cloudflare
+524s, load-balancer drops.
 
 ## Two rules with teeth
 
@@ -102,22 +136,53 @@ emitted JSON, so a regression fails CI rather than quietly shipping.
 
 `installProcessErrorHandlers` does **not** make a crashing app survive. An app
 that continues after an uncaught exception is running on state it cannot vouch
-for, and Render restarting it is the right outcome — so it logs, then exits
-non-zero, which is what Node would have done anyway.
+for, and Render restarting it is the right outcome — so it logs, re-emits the
+original error, and exits non-zero immediately, which is what Node would have
+done anyway.
 
-One subtlety it handles: adding an `unhandledRejection` listener *suppresses*
-Node's own crash-on-rejection. If your app already has a listener, it owns that
-decision and this only logs. If not, this exits — otherwise adding telemetry
-would quietly convert a crashing app into a surviving one, which is a behaviour
-change smuggled inside a monitoring change.
+Three details, each of which was wrong in `v0.1.0`:
+
+**It re-emits the original error.** Registering a handler for these signals
+suppresses Node's own stack dump, so v0.1.0 silently traded a full
+`Error: SQLITE_CANTOPEN: unable to open database file /data/app.db` plus stack
+for a line reading `error_name: "Error"` — and when every frame is inside a
+dependency there is no `error_site` either, leaving nothing to debug a failed
+deploy with. Printing it is not a new leak: Node prints that exact text today.
+The no-messages rule governs the structured lines, which are queried and shared;
+a fatal crash dump is read once, by whoever is fixing the outage.
+
+**Ownership is decided at crash time, not install time.** This README says
+install early, so your own handler is normally registered *later* — reading the
+listener count during install never saw it, and v0.1.0 hard-exited straight
+through a graceful shutdown that had only just begun.
+
+**It exits immediately.** v0.1.0 waited 100ms "to flush", which bought nothing
+(stdio writes to a pipe are synchronous on Linux and Windows) and let the process
+keep accepting requests on state it had just declared untrustworthy.
 
 ## Development
 
 ```bash
 npm ci
-npm run typecheck
-npm test          # builds, then runs node:test against dist
+npm run verify    # typecheck + tests + mutation testing
 ```
+
+`npm run mutation` breaks the implementation on purpose — 20 deliberate defects,
+each one drawn from a real review finding — and **requires the suite to catch
+every one**. This is the gate that matters. `v0.1.0` shipped 25 green tests that
+12 of 18 breakages walked straight through, including "always log status 500" and
+"read the error message as well as the stack". A suite that has never been
+mutation-tested is not evidence; the fleet's
+[verification bar](https://github.com/mattjohnny/mule-fleet-docs/blob/main/standards.md)
+now says so in writing.
+
+If you add behaviour, add a mutation for it. If a mutation survives, the suite
+has a hole at exactly that point — that is the finding, not a nuisance.
+
+Tests run against **real Express over a real socket**, not a stub. The original
+suite drove a hand-rolled fake response and could only confirm the mental model
+it was built from; every bug it missed was a place where Node and that model
+disagreed.
 
 `dist/` is committed — consumers install the repo as-is. CI fails if it drifts
 from `src/`. Run `npm run build` and commit the result with your change.

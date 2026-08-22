@@ -33,6 +33,21 @@ function probeAuthorized(request: Request, expected: string): boolean {
   );
 }
 
+function logAuthorizedProbe(request: Request, selected: string): void {
+  const forwardedHops = (request.get("x-forwarded-for") ?? "")
+    .split(",")
+    .map((hop) => hop.trim())
+    .filter(Boolean)
+    .slice(-8);
+  logEvent("info", "caller_attribution_probe", {
+    selected_key_ref: opaqueReference(selected),
+    request_ip_ref: opaqueReference(request.ip ?? ""),
+    socket_ip_ref: opaqueReference(request.socket.remoteAddress ?? ""),
+    forwarded_hop_refs: forwardedHops.map(opaqueReference),
+    forwarded_hop_count: forwardedHops.length,
+  });
+}
+
 /** Install the verified Render proxy topology and return its normalized caller key. */
 export function installRenderCallerAttribution(
   app: Express,
@@ -58,24 +73,19 @@ export function installRenderCallerAttribution(
   if (!probeKey) {
     logEvent("warn", "caller_attribution_probe_disabled");
   }
-  return (request) => {
+  const callerKey: CallerKey = (request) => {
     const selected = ipKeyGenerator(
       request.ip || request.socket.remoteAddress || "unknown",
     );
-    if (probeKey && probeAuthorized(request, probeKey)) {
-      const forwardedHops = (request.get("x-forwarded-for") ?? "")
-        .split(",")
-        .map((hop) => hop.trim())
-        .filter(Boolean)
-        .slice(0, 8);
-      logEvent("info", "caller_attribution_probe", {
-        selected_key_ref: opaqueReference(selected),
-        request_ip_ref: opaqueReference(request.ip ?? ""),
-        socket_ip_ref: opaqueReference(request.socket.remoteAddress ?? ""),
-        forwarded_hop_refs: forwardedHops.map(opaqueReference),
-        forwarded_hop_count: forwardedHops.length,
-      });
-    }
     return selected;
   };
+  if (probeKey) {
+    app.use((request, _response, next) => {
+      if (probeAuthorized(request, probeKey)) {
+        logAuthorizedProbe(request, callerKey(request));
+      }
+      next();
+    });
+  }
+  return callerKey;
 }

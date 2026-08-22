@@ -224,8 +224,20 @@ const MUTATIONS = [
   {
     name: "authorized probe telemetry leaks the selected caller address",
     file: "caller-attribution.ts",
-    from: "        selected_key_ref: opaqueReference(selected),",
-    to: "        selected_key_ref: selected,",
+    from: "    selected_key_ref: opaqueReference(selected),",
+    to: "    selected_key_ref: selected,",
+  },
+  {
+    name: "authorized probe telemetry accepts an unbounded forwarding chain",
+    file: "caller-attribution.ts",
+    from: "    .filter(Boolean)\n    .slice(-8);",
+    to: "    .filter(Boolean);",
+  },
+  {
+    name: "installer-only apps cannot produce authorized probe evidence",
+    file: "caller-attribution.ts",
+    from: '  if (probeKey) {\n    app.use((request, _response, next) => {',
+    to: '  if (false) {\n    app.use((request, _response, next) => {',
   },
   {
     name: "caller-key consumers collapse every caller into one limiter bucket",

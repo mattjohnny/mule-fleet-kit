@@ -220,16 +220,27 @@ describe("installRenderCallerAttribution", () => {
       await attribution("203.0.113.11, 198.51.100.20", {
         "x-rate-limit-probe": TEST_PROBE_KEY,
       });
+      await attribution(
+        "192.0.2.1, 192.0.2.2, 192.0.2.3, 192.0.2.4, 192.0.2.5, 192.0.2.6, 192.0.2.7, 192.0.2.8, 203.0.113.10, 198.51.100.20",
+        { "x-rate-limit-probe": TEST_PROBE_KEY },
+      );
+      await attribution(
+        "192.0.2.3, 192.0.2.4, 192.0.2.5, 192.0.2.6, 192.0.2.7, 192.0.2.8, 203.0.113.10, 198.51.100.20",
+        { "x-rate-limit-probe": TEST_PROBE_KEY },
+      );
     } finally {
       console.log = realLog;
     }
 
     const probes = infoLines.map((line) => JSON.parse(line));
-    assert.equal(probes.length, 3);
+    assert.equal(probes.length, 5);
     assert.ok(probes.every((line) => line.event === "caller_attribution_probe"));
     assert.match(probes[0].selected_key_ref, /^[a-f0-9]{16}$/);
     assert.equal(probes[1].selected_key_ref, probes[0].selected_key_ref);
     assert.notEqual(probes[2].selected_key_ref, probes[0].selected_key_ref);
+    assert.equal(probes[3].forwarded_hop_count, 8);
+    assert.equal(probes[3].forwarded_hop_refs.length, 8);
+    assert.deepEqual(probes[3].forwarded_hop_refs, probes[4].forwarded_hop_refs);
 
     const output = infoLines.join("\n");
     for (const sensitive of [
@@ -242,6 +253,35 @@ describe("installRenderCallerAttribution", () => {
     ]) {
       assert.ok(!output.includes(sensitive), `probe output contained ${sensitive}`);
     }
+  });
+
+  it("supports authorized probes when an app has no IP limiter", async () => {
+    const app = express();
+    installRenderCallerAttribution(app, { probeKey: TEST_PROBE_KEY });
+    app.get("/plain", (_req, res) => res.sendStatus(204));
+
+    const infoLines = [];
+    const realLog = console.log;
+    try {
+      console.log = (line) => infoLines.push(String(line));
+      await withServer(app, async (appOrigin) => {
+        const response = await fetch(`${appOrigin}/plain`, {
+          headers: {
+            "x-forwarded-for": "203.0.113.80, 198.51.100.20",
+            "x-rate-limit-probe": TEST_PROBE_KEY,
+          },
+        });
+        assert.equal(response.status, 204);
+      });
+    } finally {
+      console.log = realLog;
+    }
+
+    assert.equal(infoLines.length, 1);
+    const probe = JSON.parse(infoLines[0]);
+    assert.equal(probe.event, "caller_attribution_probe");
+    assert.match(probe.selected_key_ref, /^[a-f0-9]{16}$/);
+    assert.ok(!infoLines[0].includes("203.0.113.80"));
   });
 
   it("reveals no probe telemetry without exact authorization", async () => {

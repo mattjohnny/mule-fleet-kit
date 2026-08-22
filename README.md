@@ -73,10 +73,11 @@ characters (including a blank value) fails startup. A missing credential leaves
 attribution active and emits one `caller_attribution_probe_disabled` warning,
 but the app remains unverified until configuration is corrected.
 
-An authorized request carrying `x-rate-limit-probe` causes the caller-key
-function to emit `caller_attribution_probe`. The event contains only per-process
-opaque references and a bounded hop count—never raw caller addresses or the
-credential. Missing or incorrect authorization emits no probe telemetry.
+An authorized request carrying `x-rate-limit-probe` causes the installed
+middleware to emit `caller_attribution_probe`, including in an app that does not
+yet use the returned key. The event contains only per-process opaque references
+and a bounded hop count—never raw caller addresses or the credential. Missing or
+incorrect authorization emits no probe telemetry.
 
 ### New-app adoption contract
 

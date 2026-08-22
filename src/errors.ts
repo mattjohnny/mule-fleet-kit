@@ -302,6 +302,49 @@ export function installErrorTelemetry(app: Express): void {
 }
 
 /**
+ * One install per module instance.
+ *
+ * Two entry points that each call this — a server and a worker booted from the
+ * same process, or a re-export imported from two places — used to register two
+ * listeners each. The old ownership test counted listeners, so on a crash each
+ * of our own handlers read the OTHER one as "somebody else is handling this":
+ * both logged `fatal: false`, neither exited, and the app carried on serving on
+ * state it had just declared untrustworthy. Reproduced.
+ *
+ * The count test is fixed below as well — the two defences are independent, and
+ * this one is worth having on its own: duplicate listeners mean duplicate log
+ * lines even when the exit is correct.
+ */
+let processHandlersInstalled = false;
+
+/**
+ * The mark that says "this listener is fleet-kit's".
+ *
+ * A plain string key, deliberately, and not a `Symbol`: a symbol is unique per
+ * module instance, so two copies of this file loaded from two different paths
+ * (an app and a dependency resolving `@mule/fleet-kit` separately, which npm
+ * does routinely) would not recognise each other's listeners and we would be
+ * back to the bug above. A well-known string is the only marker that survives
+ * that, and it greps.
+ */
+const FATAL_LISTENER_MARKER = "__muleFleetKitFatal";
+
+function markAsOurs<T extends (...args: never[]) => void>(listener: T): T {
+  Object.defineProperty(listener, FATAL_LISTENER_MARKER, {
+    value: true,
+    enumerable: false,
+  });
+  return listener;
+}
+
+function isOursListener(listener: unknown): boolean {
+  return (
+    typeof listener === "function" &&
+    (listener as unknown as Record<string, unknown>)[FATAL_LISTENER_MARKER] === true
+  );
+}
+
+/**
  * Log process-level failures that no request owns.
  *
  * These are the failures job 3 in mule-fleet-docs was written about: the ones
@@ -317,14 +360,65 @@ export function installErrorTelemetry(app: Express): void {
  * decision, so we only log. If we are the only listener we must exit ourselves,
  * or installing telemetry would quietly turn a crashing app into a surviving
  * one — a monitoring change with a behaviour change hidden inside it.
+ *
+ * CALLING THIS TWICE IS A NO-OP — see `processHandlersInstalled` above, and
+ * `foreignOwnerExists` below for who is allowed to take the crash off us.
  */
 export function installProcessErrorHandlers(): void {
-  process.on("unhandledRejection", (reason) => {
-    handleFatal("unhandledRejection", "unhandled_rejection", reason);
-  });
-  process.on("uncaughtException", (error) => {
-    handleFatal("uncaughtException", "uncaught_exception", error);
-  });
+  if (processHandlersInstalled) return;
+  processHandlersInstalled = true;
+
+  process.on(
+    "unhandledRejection",
+    markAsOurs((reason: unknown) => {
+      handleFatal("unhandledRejection", "unhandled_rejection", reason);
+    })
+  );
+  process.on(
+    "uncaughtException",
+    markAsOurs((error: unknown) => {
+      handleFatal("uncaughtException", "uncaught_exception", error);
+    })
+  );
+}
+
+type FatalSignal = "unhandledRejection" | "uncaughtException";
+
+/**
+ * Is somebody OTHER THAN fleet-kit going to handle this crash?
+ *
+ * WHY NOT A LISTENER COUNT. `process.listenerCount(signal) > 1` was the first
+ * answer and it cannot tell the two cases apart that matter:
+ *
+ *   "somebody else will exit the process"  → we must defer, or we hard-exit
+ *                                            through their graceful shutdown.
+ *   "somebody else also decided to defer"  → nobody exits at all.
+ *
+ * A second fleet-kit listener is the second case, and so is any third-party
+ * log-only listener that a count reads as an owner. The question is not how many
+ * listeners there are, it is whether any of them is a stranger. So each listener
+ * we register carries a marker, and a foreign owner exists only when some
+ * registered listener does not carry it. (Our own handler is marked too, which
+ * is why there is no "…and is not me" clause: kin are skipped as a class.)
+ *
+ * The consequences, all three deliberate:
+ *
+ *   sole fleet-kit listener   → `fatal: true`, re-emit, exit 1. Unchanged.
+ *   two fleet-kit instances   → each is kin to the other, so whichever runs
+ *                               first still exits. Both may call `process.exit`;
+ *                               the first wins and the second never runs. The
+ *                               app never survives a crash by accident.
+ *   a genuine foreign handler → `fatal: false`, no exit, exactly as before. The
+ *                               app owns its own crash semantics; that is the
+ *                               graceful-shutdown case this test exists for.
+ */
+function foreignOwnerExists(signal: FatalSignal): boolean {
+  // `process.listeners` unwraps `once()` wrappers for us, so an app's
+  // `process.once("uncaughtException", …)` is still seen as its own function.
+  // The cast is only because process's typed overloads reject a union event
+  // name; the runtime call is the ordinary one.
+  const registered = process.listeners(signal as "uncaughtException") as unknown[];
+  return registered.some((listener) => !isOursListener(listener));
 }
 
 /**
@@ -335,15 +429,17 @@ export function installProcessErrorHandlers(): void {
  * own handler is normally registered *later*; reading the listener count during
  * install therefore never saw it, and this function hard-exited straight through
  * a graceful shutdown that had only just begun (flush metrics, close the
- * database, drain in-flight requests). Our own listener is one of the count,
- * so more than one means somebody else is handling this too.
+ * database, drain in-flight requests).
+ *
+ * WHO the other listeners are matters as much as how many, which counting could
+ * not express — see foreignOwnerExists above.
  */
 function handleFatal(
-  signal: "unhandledRejection" | "uncaughtException",
+  signal: FatalSignal,
   event: string,
   error: unknown
 ): void {
-  const ownedElsewhere = process.listenerCount(signal) > 1;
+  const ownedElsewhere = foreignOwnerExists(signal);
 
   logEvent("error", event, { ...errorFields(error), fatal: !ownedElsewhere });
 

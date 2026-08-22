@@ -173,6 +173,24 @@ through a graceful shutdown that had only just begun.
 (stdio writes to a pipe are synchronous on Linux and Windows) and let the process
 keep accepting requests on state it had just declared untrustworthy.
 
+**Ownership asks *who*, not *how many* — fixed in `v0.2.2`.** Up to `v0.2.1` the
+crash-time test was `process.listenerCount(signal) > 1`, which cannot tell "the
+app will exit the process" from "the app also decided to defer". Installing twice
+— two entry points in one process, or npm resolving the package at two paths —
+gave two of *our* handlers, each of which read the other as an owner: both logged
+`fatal: false`, **nobody exited**, and the app kept serving. Any third-party
+log-only listener did the same. Now each listener we register carries a marker,
+and a foreign owner exists only when some registered listener lacks it, so:
+
+- sole listener → `fatal: true`, re-emit, exit 1 (unchanged);
+- two fleet-kit copies → kin, so whichever runs first still exits;
+- the app's own handler → `fatal: false`, no exit (unchanged) — a graceful
+  shutdown is still never hard-exited through.
+
+`installProcessErrorHandlers()` is also idempotent now: a second call is a no-op.
+`test/fatal.test.js` covers all of it from child processes, because an exit code
+is a fact about a real process.
+
 ## Development
 
 ```bash
@@ -180,7 +198,7 @@ npm ci
 npm run verify    # typecheck + tests + mutation testing
 ```
 
-`npm run mutation` breaks the implementation on purpose — 20 deliberate defects,
+`npm run mutation` breaks the implementation on purpose — 24 deliberate defects,
 each one drawn from a real review finding — and **requires the suite to catch
 every one**. This is the gate that matters. `v0.1.0` shipped 25 green tests that
 12 of 18 breakages walked straight through, including "always log status 500" and

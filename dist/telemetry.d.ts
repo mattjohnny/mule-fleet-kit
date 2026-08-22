@@ -1,4 +1,4 @@
-import type { Express, Response } from "express";
+import type { Express, Request, Response } from "express";
 export type LogLevel = "info" | "warn" | "error";
 /** The deployed commit, short — the same value every app reports as `build` on /health. */
 export declare function buildSha(): string;
@@ -25,6 +25,8 @@ export declare function logEvent(level: LogLevel, event: string, fields?: Record
  * can be joined to its `http_request` line.
  */
 export declare function requestId(res: Response): string | undefined;
+/** Ensure request-scoped middleware shares one response-local correlation id. */
+export declare function ensureRequestId(req: Request, res: Response): string;
 /** Replace secret-looking path segments with `:id`. */
 export declare function redactPath(path: string): string;
 export interface RequestTelemetryOptions {

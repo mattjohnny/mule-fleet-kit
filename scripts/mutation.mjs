@@ -120,14 +120,15 @@ const MUTATIONS = [
   {
     name: "the request id header is not set",
     file: "telemetry.ts",
-    from: '    res.setHeader("X-Request-ID", id);',
+    from: '  res.setHeader("X-Request-ID", id);',
     to: "",
   },
   {
     name: "an inbound request id is ignored",
     file: "telemetry.ts",
-    from: '    const id = requestHeader(req, "x-request-id") || crypto.randomUUID();',
-    to: "    const id = crypto.randomUUID();",
+    from:
+      '  const id =\n    requestId(res) || requestHeader(req, "x-request-id") || crypto.randomUUID();',
+    to: "  const id = requestId(res) || crypto.randomUUID();",
   },
   {
     name: "one request logs two lines",
@@ -228,6 +229,12 @@ const MUTATIONS = [
     to: "    selected_key_ref: selected,",
   },
   {
+    name: "authorized probe telemetry cannot correlate to its request",
+    file: "caller-attribution.ts",
+    from: "    request_id: requestIdValue,",
+    to: "",
+  },
+  {
     name: "authorized probe telemetry accepts an unbounded forwarding chain",
     file: "caller-attribution.ts",
     from: "    .filter(Boolean)\n    .slice(-8);",
@@ -236,8 +243,8 @@ const MUTATIONS = [
   {
     name: "installer-only apps cannot produce authorized probe evidence",
     file: "caller-attribution.ts",
-    from: '  if (probeKey) {\n    app.use((request, _response, next) => {',
-    to: '  if (false) {\n    app.use((request, _response, next) => {',
+    from: '  if (probeKey) {\n    app.use((request, response, next) => {',
+    to: '  if (false) {\n    app.use((request, response, next) => {',
   },
   {
     name: "caller-key consumers collapse every caller into one limiter bucket",

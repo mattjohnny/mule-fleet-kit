@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { Express, Request } from "express";
 import { ipKeyGenerator } from "express-rate-limit";
-import { logEvent } from "./telemetry.js";
+import { ensureRequestId, logEvent } from "./telemetry.js";
 
 // Render's public path is caller -> Cloudflare -> Render proxy -> app. Trusting
 // exactly those two infrastructure hops makes Express ignore any forwarding
@@ -33,13 +33,18 @@ function probeAuthorized(request: Request, expected: string): boolean {
   );
 }
 
-function logAuthorizedProbe(request: Request, selected: string): void {
+function logAuthorizedProbe(
+  request: Request,
+  selected: string,
+  requestIdValue: string,
+): void {
   const forwardedHops = (request.get("x-forwarded-for") ?? "")
     .split(",")
     .map((hop) => hop.trim())
     .filter(Boolean)
     .slice(-8);
   logEvent("info", "caller_attribution_probe", {
+    request_id: requestIdValue,
     selected_key_ref: opaqueReference(selected),
     request_ip_ref: opaqueReference(request.ip ?? ""),
     socket_ip_ref: opaqueReference(request.socket.remoteAddress ?? ""),
@@ -80,9 +85,13 @@ export function installRenderCallerAttribution(
     return selected;
   };
   if (probeKey) {
-    app.use((request, _response, next) => {
+    app.use((request, response, next) => {
       if (probeAuthorized(request, probeKey)) {
-        logAuthorizedProbe(request, callerKey(request));
+        logAuthorizedProbe(
+          request,
+          callerKey(request),
+          ensureRequestId(request, response),
+        );
       }
       next();
     });

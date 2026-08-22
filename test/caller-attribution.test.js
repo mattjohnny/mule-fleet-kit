@@ -261,6 +261,7 @@ describe("installRenderCallerAttribution", () => {
     app.get("/plain", (_req, res) => res.sendStatus(204));
 
     const infoLines = [];
+    let responseRequestId;
     const realLog = console.log;
     try {
       console.log = (line) => infoLines.push(String(line));
@@ -272,6 +273,7 @@ describe("installRenderCallerAttribution", () => {
           },
         });
         assert.equal(response.status, 204);
+        responseRequestId = response.headers.get("x-request-id");
       });
     } finally {
       console.log = realLog;
@@ -280,6 +282,8 @@ describe("installRenderCallerAttribution", () => {
     assert.equal(infoLines.length, 1);
     const probe = JSON.parse(infoLines[0]);
     assert.equal(probe.event, "caller_attribution_probe");
+    assert.ok(responseRequestId);
+    assert.equal(probe.request_id, responseRequestId);
     assert.match(probe.selected_key_ref, /^[a-f0-9]{16}$/);
     assert.ok(!infoLines[0].includes("203.0.113.80"));
   });

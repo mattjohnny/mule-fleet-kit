@@ -139,6 +139,13 @@ export function requestId(res) {
     const value = res.locals?.requestId;
     return typeof value === "string" ? value : undefined;
 }
+/** Ensure request-scoped middleware shares one response-local correlation id. */
+export function ensureRequestId(req, res) {
+    const id = requestId(res) || requestHeader(req, "x-request-id") || crypto.randomUUID();
+    res.setHeader("X-Request-ID", id);
+    res.locals.requestId = id;
+    return id;
+}
 /**
  * Does this path segment look like a secret rather than a name?
  *
@@ -212,9 +219,7 @@ export function installRequestTelemetry(app, options = {}) {
     const quiet = new Set(options.ignoreSuccessfulPaths ?? ["/health"]);
     app.use((req, res, next) => {
         const started = performance.now();
-        const id = requestHeader(req, "x-request-id") || crypto.randomUUID();
-        res.setHeader("X-Request-ID", id);
-        res.locals.requestId = id;
+        const id = ensureRequestId(req, res);
         // `finish` fires when a response completes; `close` fires when the socket
         // closes, completed or not. Listening only for `finish` meant a client that
         // disconnected mid-response logged NOTHING AT ALL — client timeouts,

@@ -86,12 +86,9 @@ export function installRenderCallerAttribution(
   };
   if (probeKey) {
     app.use((request, response, next) => {
+      const requestIdValue = ensureRequestId(request, response);
       if (probeAuthorized(request, probeKey)) {
-        logAuthorizedProbe(
-          request,
-          callerKey(request),
-          ensureRequestId(request, response),
-        );
+        logAuthorizedProbe(request, callerKey(request), requestIdValue);
       }
       next();
     });

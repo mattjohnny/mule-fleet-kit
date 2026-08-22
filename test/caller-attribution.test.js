@@ -3,7 +3,10 @@ import { once } from "node:events";
 import { after, before, describe, it } from "node:test";
 import express from "express";
 import { rateLimit } from "express-rate-limit";
-import { installRenderCallerAttribution } from "../dist/index.js";
+import {
+  installRenderCallerAttribution,
+  installRequestTelemetry,
+} from "../dist/index.js";
 
 const TEST_PROBE_KEY = "test-probe-key-that-is-at-least-32-characters";
 
@@ -261,19 +264,25 @@ describe("installRenderCallerAttribution", () => {
     app.get("/plain", (_req, res) => res.sendStatus(204));
 
     const infoLines = [];
-    let responseRequestId;
+    const responseRequestIds = [];
     const realLog = console.log;
     try {
       console.log = (line) => infoLines.push(String(line));
       await withServer(app, async (appOrigin) => {
-        const response = await fetch(`${appOrigin}/plain`, {
-          headers: {
-            "x-forwarded-for": "203.0.113.80, 198.51.100.20",
-            "x-rate-limit-probe": TEST_PROBE_KEY,
-          },
-        });
-        assert.equal(response.status, 204);
-        responseRequestId = response.headers.get("x-request-id");
+        for (const probeHeader of [
+          TEST_PROBE_KEY,
+          `${TEST_PROBE_KEY.slice(0, -1)}x`,
+          undefined,
+        ]) {
+          const response = await fetch(`${appOrigin}/plain`, {
+            headers: {
+              "x-forwarded-for": "203.0.113.80, 198.51.100.20",
+              ...(probeHeader ? { "x-rate-limit-probe": probeHeader } : {}),
+            },
+          });
+          assert.equal(response.status, 204);
+          responseRequestIds.push(response.headers.get("x-request-id"));
+        }
       });
     } finally {
       console.log = realLog;
@@ -282,10 +291,45 @@ describe("installRenderCallerAttribution", () => {
     assert.equal(infoLines.length, 1);
     const probe = JSON.parse(infoLines[0]);
     assert.equal(probe.event, "caller_attribution_probe");
-    assert.ok(responseRequestId);
-    assert.equal(probe.request_id, responseRequestId);
+    assert.ok(responseRequestIds.every(Boolean));
+    assert.equal(probe.request_id, responseRequestIds[0]);
     assert.match(probe.selected_key_ref, /^[a-f0-9]{16}$/);
     assert.ok(!infoLines[0].includes("203.0.113.80"));
+  });
+
+  it("shares one request id with request telemetry regardless of middleware order", async () => {
+    const app = express();
+    installRenderCallerAttribution(app, { probeKey: TEST_PROBE_KEY });
+    installRequestTelemetry(app);
+    app.get("/plain", (_req, res) => res.sendStatus(204));
+
+    const infoLines = [];
+    let responseRequestId;
+    const realLog = console.log;
+    try {
+      console.log = (line) => infoLines.push(String(line));
+      await withServer(app, async (appOrigin) => {
+        const response = await fetch(`${appOrigin}/plain`, {
+          headers: {
+            "x-forwarded-for": "203.0.113.81, 198.51.100.20",
+            "x-rate-limit-probe": TEST_PROBE_KEY,
+          },
+        });
+        assert.equal(response.status, 204);
+        responseRequestId = response.headers.get("x-request-id");
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      });
+    } finally {
+      console.log = realLog;
+    }
+
+    const lines = infoLines.map((line) => JSON.parse(line));
+    const probe = lines.find((line) => line.event === "caller_attribution_probe");
+    const request = lines.find((line) => line.event === "http_request");
+    assert.ok(probe);
+    assert.ok(request);
+    assert.equal(probe.request_id, responseRequestId);
+    assert.equal(request.request_id, responseRequestId);
   });
 
   it("reveals no probe telemetry without exact authorization", async () => {

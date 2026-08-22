@@ -131,6 +131,14 @@ const MUTATIONS = [
     to: "  const id = requestId(res) || crypto.randomUUID();",
   },
   {
+    name: "request telemetry replaces an earlier probe correlation id",
+    file: "telemetry.ts",
+    from:
+      '  const id =\n    requestId(res) || requestHeader(req, "x-request-id") || crypto.randomUUID();',
+    to:
+      '  const id =\n    requestHeader(req, "x-request-id") || crypto.randomUUID();',
+  },
+  {
     name: "one request logs two lines",
     file: "telemetry.ts",
     from: "      if (settled) return;\n      settled = true;",
@@ -245,6 +253,13 @@ const MUTATIONS = [
     file: "caller-attribution.ts",
     from: '  if (probeKey) {\n    app.use((request, response, next) => {',
     to: '  if (false) {\n    app.use((request, response, next) => {',
+  },
+  {
+    name: "probe authorization is revealed by the request-id response header",
+    file: "caller-attribution.ts",
+    from: "      const requestIdValue = ensureRequestId(request, response);",
+    to:
+      '      const requestIdValue = probeAuthorized(request, probeKey)\n        ? ensureRequestId(request, response)\n        : "";',
   },
   {
     name: "caller-key consumers collapse every caller into one limiter bucket",

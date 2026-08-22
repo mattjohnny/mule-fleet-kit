@@ -28,5 +28,8 @@ export declare function installErrorTelemetry(app: Express): void;
  * decision, so we only log. If we are the only listener we must exit ourselves,
  * or installing telemetry would quietly turn a crashing app into a surviving
  * one — a monitoring change with a behaviour change hidden inside it.
+ *
+ * CALLING THIS TWICE IS A NO-OP — see `processHandlersInstalled` above, and
+ * `foreignOwnerExists` below for who is allowed to take the crash off us.
  */
 export declare function installProcessErrorHandlers(): void;

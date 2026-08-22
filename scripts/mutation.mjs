@@ -40,6 +40,18 @@ const MUTATIONS = [
     to: '    if (false) continue;',
   },
   {
+    name: "crash ownership is decided by listener count again (nobody exits)",
+    file: "errors.ts",
+    from: "  const ownedElsewhere = foreignOwnerExists(signal);",
+    to: "  const ownedElsewhere = process.listenerCount(signal) > 1;",
+  },
+  {
+    name: "installProcessErrorHandlers is no longer idempotent",
+    file: "errors.ts",
+    from: "  if (processHandlersInstalled) return;\n  processHandlersInstalled = true;",
+    to: "",
+  },
+  {
     name: "error status is always 500",
     file: "errors.ts",
     from: "    const status = intendedStatus(error, res);",
@@ -184,6 +196,7 @@ function suitePasses() {
     run(process.execPath, [
       "--test",
       "test/express.test.js",
+      "test/fatal.test.js",
       "test/hygiene.test.js",
       "test/jobs.test.js",
       "test/streams.test.js",

@@ -41,6 +41,14 @@ const distUrl = JSON.stringify(pathToFileURL(path.join(dist, "index.js")).href);
 function secondCopyUrl() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fleet-kit-copy-"));
   fs.cpSync(dist, path.join(dir, "dist"), { recursive: true });
+  // A real second package copy still resolves its declared runtime
+  // dependencies. Link the installed dependency tree rather than turning this
+  // crash-semantics test into a partial package layout that cannot be imported.
+  fs.symlinkSync(
+    path.join(here, "..", "node_modules"),
+    path.join(dir, "node_modules"),
+    process.platform === "win32" ? "junction" : "dir",
+  );
   return JSON.stringify(pathToFileURL(path.join(dir, "dist", "index.js")).href);
 }
 

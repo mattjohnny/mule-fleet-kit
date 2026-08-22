@@ -1,7 +1,7 @@
 # @mule/fleet-kit
 
-Shared bricks for The Mule's app fleet. First brick: **observability** — structured
-logging, error telemetry, and background-job heartbeats.
+Shared infrastructure for The Mule's app fleet: Render caller attribution,
+structured logging, error telemetry, and background-job heartbeats.
 
 Built for [`mule-fleet-docs`](https://github.com/mattjohnny/mule-fleet-docs) job 3.
 The alerting side of that job (Better Stack log source, `/health` monitors, the
@@ -11,7 +11,7 @@ in-app half.
 ## Install
 
 ```bash
-npm install github:mattjohnny/mule-fleet-kit#v0.2.0
+npm install github:mattjohnny/mule-fleet-kit#v0.3.0
 ```
 
 **Do not use `v0.1.0.`** Review found a quadratic regex reachable from any route
@@ -23,6 +23,75 @@ the reasoning matters more than the diff.
 
 Pin the tag, the way apps pin `@mule/portal-auth`. Never track `main` — a shared
 dependency that moves on its own turns one bad commit into fourteen incidents.
+
+## Render caller attribution
+
+Every Render-hosted Mule app installs caller attribution once, before registering
+an IP-keyed limiter:
+
+```ts
+import { installRenderCallerAttribution } from "@mule/fleet-kit";
+
+const callerKey = installRenderCallerAttribution(app, {
+  probeKey: process.env.RATE_LIMIT_PROBE_KEY,
+});
+```
+
+That call installs the fleet's verified Render proxy trust and returns the one
+normalized caller-key function used by both limiter shapes:
+
+```ts
+// Fleet-style custom limiter
+const key = callerKey(req);
+
+// Direct express-rate-limit use
+app.use("/sign-in", rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 20,
+  keyGenerator: callerKey,
+}));
+```
+
+Apps still own routes, windows, thresholds, stores, responses, and non-IP abuse
+controls. Do not add another `app.set("trust proxy", <hop count>)`: the installer
+refuses a conflicting configuration instead of overwriting it. A request with no
+usable address shares the stable `unknown` bucket, so it remains serviceable but
+does not bypass accounting.
+
+Each service has its own retained probe credential. Store it only in Render and
+declare it as externally managed in `render.yaml`:
+
+```yaml
+envVars:
+  - key: RATE_LIMIT_PROBE_KEY
+    sync: false
+```
+
+Pass the value to the installer as shown above; never put it in source, docs,
+logs, chat, or a shared fleet secret. A configured credential shorter than 32
+characters (including a blank value) fails startup. A missing credential leaves
+attribution active and emits one `caller_attribution_probe_disabled` warning,
+but the app remains unverified until configuration is corrected.
+
+An authorized request carrying `x-rate-limit-probe` causes the caller-key
+function to emit `caller_attribution_probe`. The event contains only per-process
+opaque references and a bounded hop count—never raw caller addresses or the
+credential. Missing or incorrect authorization emits no probe telemetry.
+
+### New-app adoption contract
+
+Before a new Render-hosted app reaches production:
+
+1. Install caller attribution once, even if the app has no IP limiter yet.
+2. Maintain an app-owned request-control map, linked from its `AGENTS.md`, that
+   classifies every externally reachable route group as IP-limited, protected by
+   another abuse control, or intentionally exempt with a rationale.
+3. Prove through the app's request boundary that every declared IP limiter uses
+   `callerKey`, and keep a ratchet rejecting app-local proxy-hop literals.
+4. Provision the unique externally managed probe credential before an
+   auto-deploying merge.
+
+This is an attribution contract, not a fleet-wide rate-limit policy.
 
 ## Wiring an app
 

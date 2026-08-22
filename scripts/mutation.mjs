@@ -175,6 +175,64 @@ const MUTATIONS = [
     from: "    throw error;\n  }\n}",
     to: "    return undefined as T;\n  }\n}",
   },
+  {
+    name: "Render trusts a caller-prepended forwarding hop",
+    file: "caller-attribution.ts",
+    from: "const RENDER_TRUSTED_PROXY_HOPS = 2;",
+    to: "const RENDER_TRUSTED_PROXY_HOPS = 3;",
+  },
+  {
+    name: "caller addresses bypass maintained normalization",
+    file: "caller-attribution.ts",
+    from:
+      '    const selected = ipKeyGenerator(\n      request.ip || request.socket.remoteAddress || "unknown",\n    );',
+    to:
+      '    const selected = request.ip || request.socket.remoteAddress || "unknown";',
+  },
+  {
+    name: "missing caller addresses split into random buckets",
+    file: "caller-attribution.ts",
+    from: '      request.ip || request.socket.remoteAddress || "unknown",',
+    to: "      request.ip || request.socket.remoteAddress || crypto.randomUUID(),",
+  },
+  {
+    name: "conflicting proxy configuration is accepted",
+    file: "caller-attribution.ts",
+    from:
+      "  if (existingTrust !== false && existingTrust !== RENDER_TRUSTED_PROXY_HOPS) {",
+    to: "  if (false) {",
+  },
+  {
+    name: "an unsafe probe credential is accepted",
+    file: "caller-attribution.ts",
+    from:
+      "  if (configuredProbeKey !== undefined && (!probeKey || probeKey.length < 32)) {",
+    to: "  if (false) {",
+  },
+  {
+    name: "the missing probe credential warning is suppressed",
+    file: "caller-attribution.ts",
+    from: "  if (!probeKey) {",
+    to: "  if (false) {",
+  },
+  {
+    name: "a same-length incorrect probe credential is authorized",
+    file: "caller-attribution.ts",
+    from: "    crypto.timingSafeEqual(suppliedBytes, expectedBytes)",
+    to: "    true",
+  },
+  {
+    name: "authorized probe telemetry leaks the selected caller address",
+    file: "caller-attribution.ts",
+    from: "        selected_key_ref: opaqueReference(selected),",
+    to: "        selected_key_ref: selected,",
+  },
+  {
+    name: "caller-key consumers collapse every caller into one limiter bucket",
+    file: "caller-attribution.ts",
+    from: "    return selected;",
+    to: '    return "one-caller";',
+  },
 ];
 
 function run(cmd, args, opts = {}) {
@@ -200,6 +258,7 @@ function suitePasses() {
       "test/hygiene.test.js",
       "test/jobs.test.js",
       "test/streams.test.js",
+      "test/caller-attribution.test.js",
     ]);
     return { passed: true };
   } catch {
@@ -208,7 +267,12 @@ function suitePasses() {
 }
 
 const originals = new Map();
-for (const name of ["errors.ts", "telemetry.ts", "jobs.ts"]) {
+for (const name of [
+  "errors.ts",
+  "telemetry.ts",
+  "jobs.ts",
+  "caller-attribution.ts",
+]) {
   originals.set(name, fs.readFileSync(file(name), "utf8"));
 }
 const restore = () => {

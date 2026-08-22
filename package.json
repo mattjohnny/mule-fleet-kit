@@ -1,7 +1,7 @@
 {
   "name": "@mule/fleet-kit",
-  "version": "0.2.2",
-  "description": "Shared bricks for The Mule's app fleet — structured logging, error telemetry, and background-job heartbeats (mule-fleet-docs jobs.md §3).",
+  "version": "0.3.0",
+  "description": "Shared infrastructure for The Mule app fleet: caller attribution, structured logging, error telemetry, and job heartbeats.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -40,5 +40,8 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mattjohnny/mule-fleet-kit.git"
+  },
+  "dependencies": {
+    "express-rate-limit": "8.6.2"
   }
 }

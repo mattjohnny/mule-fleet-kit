@@ -249,17 +249,6 @@ export function errorFields(error: unknown): Record<string, unknown> {
 }
 
 /**
- * Log an `unhandled_error` line for anything that reaches Express's error path.
- *
- * INSTALL THIS AFTER THE ROUTES AND BEFORE THE APP'S OWN ERROR HANDLER. It logs
- * and then calls next(err), so whatever already decides the response keeps
- * deciding it — this changes what you can see, never what the caller receives.
- *
- * If the response has already been sent, Express is unwinding a broken response
- * and only the log line is possible; next(err) still runs so the default handler
- * can destroy the socket.
- */
-/**
  * The status an error is going to produce.
  *
  * `res.statusCode` is still 200 when an error handler runs — nothing has set it
@@ -273,8 +262,15 @@ export function errorFields(error: unknown): Record<string, unknown> {
  * Express's own convention is `err.status` / `err.statusCode`, which body-parser,
  * http-errors and every app's error classes set. Read those first; only guess
  * 500 when nobody has said otherwise.
+ *
+ * EXPORTED FOR `installTerminalErrorHandler`, AND FOR NOTHING ELSE. The terminal
+ * handler answers the caller with a status and this handler logs one; if the two
+ * were derived separately they would drift, and a line reading `status: 403`
+ * beside a caller who was told 500 makes the log source worse than no log at
+ * all. One derivation, two callers. It stays out of `index.ts`: apps have no
+ * business reading it, and a published export is a promise to keep it.
  */
-function intendedStatus(error: unknown, res: Response): number {
+export function intendedStatus(error: unknown, res: Response): number {
   const candidate = error as { status?: unknown; statusCode?: unknown } | null;
   for (const value of [candidate?.status, candidate?.statusCode]) {
     if (typeof value === "number" && Number.isInteger(value) && value >= 400 && value <= 599) {
@@ -286,6 +282,17 @@ function intendedStatus(error: unknown, res: Response): number {
   return 500;
 }
 
+/**
+ * Log an `unhandled_error` line for anything that reaches Express's error path.
+ *
+ * INSTALL THIS AFTER THE ROUTES AND BEFORE THE APP'S OWN ERROR HANDLER. It logs
+ * and then calls next(err), so whatever already decides the response keeps
+ * deciding it — this changes what you can see, never what the caller receives.
+ *
+ * If the response has already been sent, Express is unwinding a broken response
+ * and only the log line is possible; next(err) still runs so the default handler
+ * can destroy the socket.
+ */
 export function installErrorTelemetry(app: Express): void {
   app.use((error: unknown, req: Request, res: Response, next: NextFunction) => {
     const status = intendedStatus(error, res);

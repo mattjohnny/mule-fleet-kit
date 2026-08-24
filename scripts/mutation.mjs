@@ -76,6 +76,39 @@ const MUTATIONS = [
     to: "  if (true) {\n    return { error_name: safeErrorName(error), error_site: errorSite(error) };",
   },
   {
+    name: "the terminal handler puts the error in the response body (the leak)",
+    file: "terminal-error.ts",
+    from: "    res.status(status).json({ error: houseMessage(status) });",
+    to: "    res.status(status).json({ error: houseMessage(status), detail: String(error) });",
+  },
+  {
+    name: "the terminal handler answers 500 for everything",
+    file: "terminal-error.ts",
+    from: "    const status = intendedStatus(error, res);",
+    to: "    const status = 500;",
+  },
+  {
+    name: "the terminal handler answers over a response that already started",
+    file: "terminal-error.ts",
+    from: "    if (res.headersSent) {\n      res.destroy();\n      return;\n    }\n\n",
+    to: "",
+  },
+  {
+    name: "the framework fingerprint is advertised again",
+    file: "terminal-error.ts",
+    from: '  app.disable("x-powered-by");\n\n',
+    to: "",
+  },
+  {
+    name: "the terminal handler derives its own status (answered drifts from logged)",
+    file: "terminal-error.ts",
+    from: 'import { intendedStatus } from "./errors.js";',
+    to:
+      "function intendedStatus(_error: unknown, res: Response): number {\n" +
+      "  return res.statusCode >= 400 ? res.statusCode : 500;\n" +
+      "}",
+  },
+  {
     name: "logEvent throws on unserializable values",
     file: "telemetry.ts",
     from: "    return JSON.stringify(payload, safeReplacer()) ?? \"{}\";",
@@ -293,6 +326,7 @@ function suitePasses() {
       "test/jobs.test.js",
       "test/streams.test.js",
       "test/caller-attribution.test.js",
+      "test/terminal-error.test.js",
     ]);
     return { passed: true };
   } catch {
@@ -306,6 +340,7 @@ for (const name of [
   "telemetry.ts",
   "jobs.ts",
   "caller-attribution.ts",
+  "terminal-error.ts",
 ]) {
   originals.set(name, fs.readFileSync(file(name), "utf8"));
 }

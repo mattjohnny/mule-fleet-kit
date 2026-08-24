@@ -2,14 +2,19 @@
 //
 // Shared observability and Render caller-attribution infrastructure.
 //
-// Wiring an app takes four calls. Order matters for two of them:
+// Wiring an app takes five calls. Order matters for three of them:
 //
 //   installProcessErrorHandlers();          // once, as early as possible
 //   startRuntimeTelemetry();                // once, anywhere after that
 //   installRequestTelemetry(app);           // BEFORE the routes
 //   ... your routes ...
-//   installErrorTelemetry(app);             // AFTER the routes, BEFORE your own
+//   installErrorTelemetry(app);             // AFTER the routes, BEFORE any
 //                                          // error handler
+//   ... your own error handlers, if any ...
+//   installTerminalErrorHandler(app);       // LAST — it answers the caller
+//
+// An app that wants to keep its own terminal handler just does not make the
+// last call; everything above it is unaffected.
 //
 // Render-hosted apps install caller attribution once, before their limiters:
 //
@@ -24,5 +29,6 @@
 //   });
 export { buildSha, installRequestTelemetry, logEvent, redactPath, requestId, startRuntimeTelemetry, } from "./telemetry.js";
 export { errorFields, errorSite, installErrorTelemetry, installProcessErrorHandlers, safeErrorName, } from "./errors.js";
+export { installTerminalErrorHandler } from "./terminal-error.js";
 export { pingHeartbeat, runTrackedJob, } from "./jobs.js";
 export { installRenderCallerAttribution, } from "./caller-attribution.js";

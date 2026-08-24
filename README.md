@@ -1,7 +1,8 @@
 # @mule/fleet-kit
 
 Shared infrastructure for The Mule's app fleet: Render caller attribution,
-structured logging, error telemetry, and background-job heartbeats.
+structured logging, error telemetry, the terminal error handler, and
+background-job heartbeats.
 
 Built for [`mule-fleet-docs`](https://github.com/mattjohnny/mule-fleet-docs) job 3.
 The alerting side of that job (Better Stack log source, `/health` monitors, the
@@ -11,7 +12,7 @@ in-app half.
 ## Install
 
 ```bash
-npm install github:mattjohnny/mule-fleet-kit#v0.3.0
+npm install github:mattjohnny/mule-fleet-kit#v0.4.0
 ```
 
 **Do not use `v0.1.0.`** Review found a quadratic regex reachable from any route
@@ -96,14 +97,15 @@ This is an attribution contract, not a fleet-wide rate-limit policy.
 
 ## Wiring an app
 
-Four calls. **Order matters for two of them**, because Express runs middleware in
-registration order.
+Five calls. **Order matters for three of them**, because Express runs middleware
+in registration order.
 
 ```ts
 import {
   installProcessErrorHandlers,
   installRequestTelemetry,
   installErrorTelemetry,
+  installTerminalErrorHandler,
   startRuntimeTelemetry,
 } from "@mule/fleet-kit";
 
@@ -115,13 +117,57 @@ installRequestTelemetry(app);    // BEFORE the routes
 
 // ... routes ...
 
-installErrorTelemetry(app);      // AFTER the routes, BEFORE your own error handler
+installErrorTelemetry(app);      // AFTER the routes, BEFORE any error handler
+
+// ... your own error handlers, if you have any ...
+
+installTerminalErrorHandler(app); // LAST — it answers the caller
 ```
 
 `installRequestTelemetry` after the routes sees nothing — a response that finishes
 in an earlier handler never reaches a later one. `installErrorTelemetry` after
 your own error handler also sees nothing, for the same reason: whichever handler
 sends the response ends the chain.
+
+### The terminal error handler
+
+`installTerminalErrorHandler(app)` is the last middleware an app registers, and
+it replaced seven per-app copies that had drifted apart. It answers a failed
+request with one of three fixed sentences and **nothing else**:
+
+| status | body |
+| --- | --- |
+| 413 | `{"error":"That upload is too large."}` |
+| other 4xx | `{"error":"That request couldn't be read."}` |
+| 5xx | `{"error":"Something went wrong on our side — it's been logged."}` |
+
+The status is the same one `installErrorTelemetry` logged, from the same
+function — so the line in the log source and the answer the caller received can
+never describe different incidents.
+
+**It never logs.** `installErrorTelemetry` logged this error one middleware ago,
+hygienically; a second line here could only add the part that must not be
+emitted.
+
+**It never emits `error.message` or `error.stack` — not even for a 4xx.** A 4xx
+feels safe to explain, and that is the trap: `express.json()` rejects a malformed
+body with a message quoting the payload, so being helpful reflects the caller's
+own data — staff names and wages, in this fleet — back out in the response.
+
+**If the response has already started, it destroys the connection.** There is no
+status line left to change, `res.json()` there throws `ERR_HTTP_HEADERS_SENT`,
+and handing the error on to Express's default handler makes it print a raw stack
+to stderr, straight past everything this package guarantees. A truncated response
+is the honest answer: the client can tell the body is incomplete, because it is.
+
+**It also disables `x-powered-by`**, the header advertising the framework to
+anyone scanning the fleet for a version with a known advisory. It lives here
+because this is the call every app is adding anyway
+([`mule-fleet-docs`](https://github.com/mattjohnny/mule-fleet-docs) job 26,
+cluster 4) rather than a fourteenth line to add to fourteen bootstraps.
+
+An app that wants to keep its own terminal handler simply does not call this;
+everything above it in the order is unaffected.
 
 ### Background jobs
 
@@ -268,7 +314,7 @@ npm ci
 npm run verify    # typecheck + tests + mutation testing
 ```
 
-`npm run mutation` breaks the implementation on purpose — 24 deliberate defects,
+`npm run mutation` breaks the implementation on purpose — 43 deliberate defects,
 each one drawn from a real review finding — and **requires the suite to catch
 every one**. This is the gate that matters. `v0.1.0` shipped 25 green tests that
 12 of 18 breakages walked straight through, including "always log status 500" and

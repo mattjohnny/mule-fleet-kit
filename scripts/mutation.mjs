@@ -12,10 +12,14 @@
 //
 //   node scripts/mutation.mjs
 
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
+import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { classifyMutation } from "./mutation-proof.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const file = (name) => path.join(root, "src", name);
@@ -70,10 +74,10 @@ const MUTATIONS = [
     to: "  return \"Error\";",
   },
   {
-    name: "errorFields can throw again",
+    name: "errorFields reads a hostile name before its safety boundary",
     file: "errors.ts",
-    from: "  try {\n    return { error_name: safeErrorName(error), error_site: errorSite(error) };",
-    to: "  if (true) {\n    return { error_name: safeErrorName(error), error_site: errorSite(error) };",
+    from: "export function errorFields(error: unknown): Record<string, unknown> {\n  try {\n    return { error_name: safeErrorName(error), error_site: errorSite(error) };",
+    to: "export function errorFields(error: unknown): Record<string, unknown> {\n  const name = (error as { name?: unknown } | null)?.name;\n  try {\n    return { error_name: safeErrorName({ name }), error_site: errorSite(error) };",
   },
   {
     name: "the terminal handler puts the error in the response body (the leak)",
@@ -303,7 +307,7 @@ const MUTATIONS = [
     name: "installer-only apps cannot produce authorized probe evidence",
     file: "caller-attribution.ts",
     from: '  if (probeKey) {\n    app.use((request, response, next) => {',
-    to: '  if (false) {\n    app.use((request, response, next) => {',
+    to: '  if (probeKey && Boolean(false)) {\n    app.use((request, response, next) => {',
   },
   {
     name: "probe authorization is revealed by the request-id response header",
@@ -320,101 +324,153 @@ const MUTATIONS = [
   },
 ];
 
-function run(cmd, args, opts = {}) {
-  return execFileSync(cmd, args, { cwd: root, encoding: "utf8", stdio: "pipe", ...opts });
-}
-
-/** `npm` is a .cmd shim on Windows, which execFileSync cannot exec directly. */
-function build() {
-  return run("npm", ["run", "build"], { shell: process.platform === "win32" });
-}
-
-function suitePasses() {
-  try {
-    build();
-  } catch {
-    return { passed: false, reason: "build failed" };
-  }
-  try {
-    run(process.execPath, [
-      "--test",
-      "test/express.test.js",
-      "test/fatal.test.js",
-      "test/hygiene.test.js",
-      "test/jobs.test.js",
-      "test/streams.test.js",
-      "test/caller-attribution.test.js",
-      "test/terminal-error.test.js",
-    ]);
-    return { passed: true };
-  } catch {
-    return { passed: false, reason: "tests failed" };
+// Keep evidence outside the package, and never overwrite an earlier campaign.
+const evidence = process.env.MULE_MUTATION_PROOF_DIR
+  ? path.resolve(process.env.MULE_MUTATION_PROOF_DIR)
+  : fs.mkdtempSync(path.join(os.tmpdir(), "fleet-kit-mutations-"));
+fs.mkdirSync(evidence, { recursive: true });
+assert.equal(fs.readdirSync(evidence).length, 0, "mutation evidence directory must be empty");
+const sha256 = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
+const save = (name, value) => fs.writeFileSync(path.join(evidence, name), JSON.stringify(value, null, 2) + "\n");
+const originals = new Map([...new Set(MUTATIONS.map((mutation) => mutation.file))]
+  .map((name) => [file(name), fs.readFileSync(file(name))]));
+const emitted = new Map(fs.readdirSync(path.join(root, "dist"))
+  .map((name) => path.join(root, "dist", name))
+  .map((name) => [name, fs.readFileSync(name)]));
+function restore(files = originals) {
+  for (const [name, bytes] of files) {
+    if (!fs.existsSync(name) || !fs.readFileSync(name).equals(bytes)) {
+      fs.mkdirSync(path.dirname(name), { recursive: true });
+      fs.writeFileSync(name, bytes);
+    }
   }
 }
-
-const originals = new Map();
-for (const name of [
-  "errors.ts",
-  "telemetry.ts",
-  "jobs.ts",
-  "caller-attribution.ts",
-  "terminal-error.ts",
-]) {
-  originals.set(name, fs.readFileSync(file(name), "utf8"));
-}
-const restore = () => {
-  for (const [name, text] of originals) fs.writeFileSync(file(name), text);
-};
-
-process.on("exit", restore);
-process.on("SIGINT", () => {
-  restore();
-  process.exit(130);
+let completed = false;
+process.on("exit", () => {
+  if (!completed) { restore(); restore(emitted); }
 });
-
-console.log("Baseline: the suite must pass before any mutation is meaningful.");
-const baseline = suitePasses();
-if (!baseline.passed) {
-  console.error(`  BASELINE FAILS (${baseline.reason}) — fix that first.`);
-  process.exit(2);
+for (const [signal, status] of [["SIGINT", 130], ["SIGTERM", 143]]) {
+  process.on(signal, () => {
+    restore();
+    restore(emitted);
+    save("interrupted.json", { signal, status, restored: true });
+    process.exit(status);
+  });
 }
-console.log("  baseline green\n");
 
-const survivors = [];
-for (const mutation of MUTATIONS) {
+function run(name, command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    cwd: root, encoding: "utf8", stdio: "pipe", timeout: 120_000,
+    maxBuffer: 64 * 1024 * 1024, ...options,
+  });
+  const record = {
+    command, args, status: result.status, signal: result.signal,
+    errorCode: result.error?.code ?? null, error: result.error?.stack ?? null,
+  };
+  const output = `$ ${command} ${args.join(" ")}\n${result.stdout ?? ""}${result.stderr ?? ""}\n${JSON.stringify(record)}\n`;
+  fs.writeFileSync(path.join(evidence, `${name}.log`), output);
+  save(`${name}.json`, record);
+  // CI retains diagnostics even when its temporary filesystem disappears.
+  process.stdout.write(output);
+  return record;
+}
+function build(name) {
+  return run(name, "npm", ["run", "build"], { shell: process.platform === "win32" });
+}
+function suite(name) {
+  const buildRecord = build(`${name}-build`);
+  if (buildRecord.status !== 0 || buildRecord.signal || buildRecord.error) {
+    return classifyMutation(buildRecord, null, []);
+  }
+  const eventPath = path.join(evidence, `${name}-events.jsonl`);
+  const testRecord = run(`${name}-tests`, process.execPath, [
+    "--test", "--test-reporter=tap",
+    `--test-reporter=${pathToFileURL(path.join(root, "scripts/mutation-events.mjs")).href}`,
+    "--test-reporter-destination=stdout", `--test-reporter-destination=${eventPath}`,
+    "test/express.test.js", "test/fatal.test.js", "test/hygiene.test.js",
+    "test/jobs.test.js", "test/streams.test.js", "test/caller-attribution.test.js",
+    "test/terminal-error.test.js",
+  ]);
+  let events;
+  try {
+    const raw = fs.readFileSync(eventPath, "utf8");
+    process.stdout.write(raw);
+    events = raw.trim().split("\n").map((line) => JSON.parse(line));
+  } catch (error) {
+    fs.writeFileSync(path.join(evidence, `${name}-event-error.log`), String(error.stack));
+    return { outcome: "invalid", reason: "test event stream could not be read or parsed" };
+  }
+  return classifyMutation(buildRecord, testRecord, events);
+}
+
+const results = [];
+let baseline;
+let restoredBuild;
+let fatalError;
+console.log(`Mutation evidence: ${evidence}`);
+save("runtime.json", { node: process.version, platform: process.platform, versions: process.versions });
+save("original-hashes.json", Object.fromEntries([...originals].map(([name, bytes]) => [path.relative(root, name), sha256(bytes)])));
+try {
+  baseline = suite("baseline");
+  assert.equal(baseline.outcome, "survived", `baseline must pass: ${baseline.reason}`);
+  for (const [index, mutation] of MUTATIONS.entries()) {
+    restore();
+    const name = `mutation-${String(index + 1).padStart(2, "0")}`;
+    const target = file(mutation.file);
+    let text = originals.get(target).toString("utf8").split(CRLF).join(LF);
+    try {
+      for (const replacement of [mutation, ...(mutation.extra ? [mutation.extra] : [])]) {
+        assert.equal(text.split(replacement.from).length, 2, "mutation anchor must occur exactly once");
+        text = text.replace(replacement.from, replacement.to);
+      }
+      assert.notEqual(sha256(text), sha256(originals.get(target)), "mutation must change source");
+      fs.writeFileSync(target, text);
+      fs.writeFileSync(path.join(evidence, `${name}-${mutation.file}`), text);
+      const diff = run(`${name}-diff`, "git", ["-c", `safe.directory=${root.replaceAll("\\", "/")}`, "diff", "--", "src"]);
+      assert.equal(diff.status, 0, "applied diff must be recorded");
+      assert.equal(diff.error, null);
+      assert.equal(diff.signal, null);
+      results.push({ name: mutation.name, evidence: name, mutatedHash: sha256(text), ...suite(name) });
+    } catch (error) {
+      fs.writeFileSync(path.join(evidence, `${name}-runner-error.log`), String(error.stack));
+      results.push({ name: mutation.name, evidence: name, outcome: "invalid", reason: String(error) });
+    } finally {
+      restore();
+      results.at(-1).restoredHash = sha256(fs.readFileSync(target));
+      assert.deepEqual(fs.readFileSync(target), originals.get(target), "source must be restored");
+      save("results.json", results);
+    }
+    console.log(`${results.at(-1).outcome}: ${mutation.name} (${results.at(-1).reason})`);
+  }
+} catch (error) {
+  fatalError = String(error.stack);
+  console.error(fatalError);
+} finally {
   restore();
-  const target = file(mutation.file);
-  // Normalize CRLF before matching: multi-line anchors silently miss on
-  // Windows checkouts otherwise, and a stale anchor reads as a survivor.
-  let text = fs.readFileSync(target, "utf8").split(CRLF).join(LF);
-
-  if (!text.includes(mutation.from)) {
-    console.log(`??  ${mutation.name}\n    (anchor not found — mutation is stale)`);
-    survivors.push({ ...mutation, stale: true });
-    continue;
-  }
-  text = text.replace(mutation.from, mutation.to);
-  if (mutation.extra) text = text.replace(mutation.extra.from, mutation.extra.to);
-  fs.writeFileSync(target, text);
-
-  const result = suitePasses();
-  if (result.passed) {
-    console.log(`!!  SURVIVED  ${mutation.name}`);
-    survivors.push(mutation);
-  } else {
-    console.log(`ok  killed    ${mutation.name}`);
-  }
+  restoredBuild = build("restored-build");
+  const restoration = [...originals].map(([name, bytes]) => ({
+    path: path.relative(root, name), originalHash: sha256(bytes),
+    restoredHash: sha256(fs.readFileSync(name)), identical: fs.readFileSync(name).equals(bytes),
+  }));
+  const emittedRestoration = [...emitted].map(([name, bytes]) => ({
+    path: path.relative(root, name), originalHash: sha256(bytes),
+    restoredHash: fs.existsSync(name) ? sha256(fs.readFileSync(name)) : null,
+    identical: fs.existsSync(name) && fs.readFileSync(name).equals(bytes),
+  }));
+  save("restoration.json", { sources: restoration, emitted: emittedRestoration, build: restoredBuild });
+  assert.ok(restoration.every((entry) => entry.identical), "all source bytes must be restored");
+  completed = restoredBuild.status === 0 && !restoredBuild.signal && !restoredBuild.error
+    && emittedRestoration.every((entry) => entry.identical);
+  if (!completed) console.error("Restored build or emitted-byte restoration failed; see restoration.json");
 }
-
-restore();
-build();
-
-console.log(
-  `\n${MUTATIONS.length - survivors.length}/${MUTATIONS.length} mutations killed.`
-);
-if (survivors.length > 0) {
-  console.log("\nSurvivors — the suite does not constrain these:");
-  for (const s of survivors) console.log(`  - ${s.name}${s.stale ? " (stale anchor)" : ""}`);
-  process.exit(1);
+const killed = results.filter((result) => result.outcome === "killed").length;
+const success = !fatalError && baseline?.outcome === "survived" && completed
+  && results.length === MUTATIONS.length && killed === MUTATIONS.length;
+save("summary.json", { success, total: MUTATIONS.length, killed, baseline, restoredBuild, fatalError, results });
+console.log(`\n${killed}/${MUTATIONS.length} assertion-backed kills. Evidence: ${evidence}`);
+if (!success) {
+  for (const result of results.filter((result) => result.outcome !== "killed")) {
+    console.error(`${result.outcome}: ${result.name}: ${result.reason}`);
+  }
+  process.exitCode = 1;
 }
-console.log("Every deliberate breakage was caught.");

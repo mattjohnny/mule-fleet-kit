@@ -118,7 +118,9 @@ describe("pingHeartbeat", () => {
       throw new TypeError("network down");
     };
     try {
-      await pingHeartbeat("https://hb.test/secret-token-xyz", "nightly");
+      await assert.doesNotReject(() =>
+        pingHeartbeat("https://hb.test/secret-token-xyz", "nightly")
+      );
     } finally {
       globalThis.fetch = originalFetch;
     }

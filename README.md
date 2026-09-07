@@ -327,6 +327,21 @@ now says so in writing.
 If you add behaviour, add a mutation for it. If a mutation survives, the suite
 has a hole at exactly that point — that is the finding, not a nuisance.
 
+The gate counts a kill only after a successful build and a completed test run
+with an assertion failure inside a test body. Compiler errors, load or setup
+failures, raw exceptions, cancellation, signals, and timeouts are invalid runs;
+they fail the gate and do not count as kills. The runner retains full command
+output, structured test events, applied source diffs, and restoration hashes in
+a fresh temporary directory, whose path it prints. Set `MULE_MUTATION_PROOF_DIR`
+to an empty directory to retain evidence at a chosen location. Diagnostics also
+appear in the CI log. Sources are restored after each case and rebuilt at exit.
+
+The September 7, 2026 run at `f6e8d3e` that reported 46/46 kills is withdrawn:
+its old runner accepted two compile failures and one raw rejection. That run
+proved only 43 body-assertion failures. The two invalid catalog entries now
+produce runtime defects; the existing no-throw and no-reject behavioral tests
+use explicit assertions. These proof corrections do not change production code.
+
 Tests run against **real Express over a real socket**, not a stub. The original
 suite drove a hand-rolled fake response and could only confirm the mental model
 it was built from; every bug it missed was a place where Node and that model

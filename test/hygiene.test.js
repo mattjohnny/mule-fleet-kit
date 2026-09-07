@@ -142,7 +142,7 @@ describe("logEvent cannot throw", () => {
     circular.self = circular;
     const lines = captured(() => logEvent("info", "t", { circular }));
     assert.equal(lines.length, 1);
-    assert.equal(lines[0].circular.self, "[circular]");
+    assert.equal(lines[0].circular?.self, "[circular]");
   });
 
   it("survives a throwing toJSON, keeping the envelope", () => {

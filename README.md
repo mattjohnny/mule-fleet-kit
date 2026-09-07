@@ -337,8 +337,10 @@ to an empty directory to retain evidence at a chosen location. Diagnostics also
 appear in the CI log. Sources are restored after each case and rebuilt at exit.
 
 The September 7, 2026 run at `f6e8d3e` that reported 46/46 kills is withdrawn:
-its old runner accepted two compile failures and one raw rejection. That run
-proved only 43 body-assertion failures. The two invalid catalog entries now
+its old runner accepted two compile failures and one raw rejection. Another
+43 outputs contained assertions, including a later-identified mixed assertion
+and raw-error case; these are not 43 accepted clean assertion kills. The two
+invalid catalog entries now
 produce runtime defects; the existing no-throw and no-reject behavioral tests
 use explicit assertions. These proof corrections do not change production code.
 

@@ -69,10 +69,11 @@ envVars:
 ```
 
 Pass the value to the installer as shown above; never put it in source, docs,
-logs, chat, or a shared fleet secret. A configured credential shorter than 32
-characters (including a blank value) fails startup. A missing credential leaves
-attribution active and emits one `caller_attribution_probe_disabled` warning,
-but the app remains unverified until configuration is corrected.
+logs, chat, or a shared fleet secret. A missing or exactly empty (`""`) credential
+leaves attribution active and emits one `caller_attribution_probe_disabled`
+warning, but the app remains unverified until configuration is corrected.
+Nonempty credentials with fewer than 32 characters after trimming, including
+whitespace-only values, still fail startup.
 
 An authorized request carrying `x-rate-limit-probe` causes the installed
 middleware to emit `caller_attribution_probe`, including in an app that does not
@@ -314,7 +315,7 @@ npm ci
 npm run verify    # typecheck + tests + mutation testing
 ```
 
-`npm run mutation` breaks the implementation on purpose — 43 deliberate defects,
+`npm run mutation` breaks the implementation on purpose — 46 deliberate defects,
 each one drawn from a real review finding — and **requires the suite to catch
 every one**. This is the gate that matters. `v0.1.0` shipped 25 green tests that
 12 of 18 breakages walked straight through, including "always log status 500" and

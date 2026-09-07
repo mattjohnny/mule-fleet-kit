@@ -160,20 +160,108 @@ describe("installRenderCallerAttribution", () => {
   });
 
   it("fails startup when an explicitly configured probe credential is unsafe", () => {
+    for (const probeKey of [
+      "short", "   ", "\t\n", "x".repeat(31), ` ${"x".repeat(31)} `,
+    ]) {
+      assert.throws(
+        () => installRenderCallerAttribution(express(), { probeKey }),
+        /probe credential must be at least 32 characters/,
+      );
+    }
+  });
+
+  it("treats an exactly empty probe credential as disabled without bypassing caller limits", async () => {
+    const app = express();
+    const warningLines = [];
+    const infoLines = [];
+    const realError = console.error;
+    const realLog = console.log;
+    try {
+      console.error = (line) => warningLines.push(String(line));
+      console.log = (line) => infoLines.push(String(line));
+      let callerKey;
+      assert.doesNotThrow(() => {
+        callerKey = installRenderCallerAttribution(app, { probeKey: "" });
+      });
+      assert.equal(app.get("trust proxy"), 2);
+      app.use("/limited", rateLimit({
+        windowMs: 60_000,
+        limit: 1,
+        keyGenerator: callerKey,
+        standardHeaders: false,
+        legacyHeaders: false,
+      }));
+      app.get("/limited", (_req, res) => res.sendStatus(204));
+
+      await withServer(app, async (appOrigin) => {
+        for (const [forwardedFor, expectedStatus, probeHeader] of [
+          ["203.0.113.70, 198.51.100.20", 204, ""],
+          ["192.0.2.99, 203.0.113.70, 198.51.100.20", 429, TEST_PROBE_KEY],
+          ["203.0.113.71, 198.51.100.20", 204, TEST_PROBE_KEY],
+        ]) {
+          const response = await fetch(`${appOrigin}/limited`, {
+            headers: { "x-forwarded-for": forwardedFor, "x-rate-limit-probe": probeHeader },
+          });
+          assert.equal(response.status, expectedStatus);
+          assert.equal(response.headers.get("x-request-id"), null);
+          await response.text();
+        }
+      });
+
+      assert.deepEqual(infoLines, []);
+      assert.equal(warningLines.length, 1);
+      const warning = JSON.parse(warningLines[0]);
+      assert.equal(warning.level, "warn");
+      assert.equal(warning.event, "caller_attribution_probe_disabled");
+      assert.deepEqual(Object.keys(warning).sort(), [
+        "build", "event", "instance_id", "level", "service_id", "timestamp",
+      ].filter((key) => key in warning));
+      for (const sensitive of [TEST_PROBE_KEY, "203.0.113.70", "203.0.113.71", "198.51.100.20"]) {
+        assert.ok(!warningLines[0].includes(sensitive));
+      }
+    } finally {
+      console.error = realError;
+      console.log = realLog;
+    }
+
+    const conflicting = express();
+    conflicting.set("trust proxy", 1);
     assert.throws(
-      () =>
-        installRenderCallerAttribution(express(), {
-          probeKey: "short",
-        }),
-      /probe credential must be at least 32 characters/,
+      () => installRenderCallerAttribution(conflicting, { probeKey: "" }),
+      /conflicting Express trust proxy configuration/,
     );
-    assert.throws(
-      () =>
-        installRenderCallerAttribution(express(), {
-          probeKey: "   ",
-        }),
-      /probe credential must be at least 32 characters/,
-    );
+    assert.equal(conflicting.get("trust proxy"), 1);
+  });
+
+  it("accepts a 32-character probe credential and preserves existing trimming", async () => {
+    const probeKey = "x".repeat(32);
+    for (const configured of [probeKey, ` \t${probeKey}\n `]) {
+      const app = express();
+      assert.doesNotThrow(() => {
+        installRenderCallerAttribution(app, { probeKey: configured });
+      });
+      app.get("/plain", (_req, res) => res.sendStatus(204));
+      const infoLines = [];
+      const realLog = console.log;
+      try {
+        console.log = (line) => infoLines.push(String(line));
+        await withServer(app, async (appOrigin) => {
+          for (const header of [undefined, "y".repeat(32), ` ${probeKey} `]) {
+            const response = await fetch(`${appOrigin}/plain`, {
+              headers: header === undefined ? {} : { "x-rate-limit-probe": header },
+            });
+            assert.equal(response.status, 204);
+          }
+        });
+      } finally {
+        console.log = realLog;
+      }
+      assert.equal(infoLines.length, 1);
+      const probe = JSON.parse(infoLines[0]);
+      assert.equal(probe.event, "caller_attribution_probe");
+      assert.match(probe.selected_key_ref, /^[a-f0-9]{16}$/);
+      assert.ok(!infoLines[0].includes(probeKey));
+    }
   });
 
   it("keeps attribution active and emits one safe warning when the probe credential is missing", async () => {

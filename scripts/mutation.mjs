@@ -245,6 +245,24 @@ const MUTATIONS = [
     to: "  if (false) {",
   },
   {
+    name: "an exactly empty probe credential crashes startup again (D23)",
+    file: "caller-attribution.ts",
+    from: '  const configuredProbeKey = options.probeKey === "" ? undefined : options.probeKey;',
+    to: "  const configuredProbeKey = options.probeKey;",
+  },
+  {
+    name: "the valid 32-character probe credential boundary is rejected",
+    file: "caller-attribution.ts",
+    from: "probeKey.length < 32",
+    to: "probeKey.length <= 32",
+  },
+  {
+    name: "configured probe credentials no longer trim surrounding whitespace",
+    file: "caller-attribution.ts",
+    from: "  const probeKey = configuredProbeKey?.trim();",
+    to: "  const probeKey = configuredProbeKey;",
+  },
+  {
     name: "an unsafe probe credential is accepted",
     file: "caller-attribution.ts",
     from:

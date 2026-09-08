@@ -142,7 +142,7 @@ describe("logEvent cannot throw", () => {
     circular.self = circular;
     const lines = captured(() => logEvent("info", "t", { circular }));
     assert.equal(lines.length, 1);
-    assert.equal(lines[0].circular.self, "[circular]");
+    assert.equal(lines[0].circular?.self, "[circular]");
   });
 
   it("survives a throwing toJSON, keeping the envelope", () => {
@@ -203,7 +203,8 @@ describe("errorFields never throws", () => {
     const hostile = {};
     Object.defineProperty(hostile, "stack", { get() { throw new Error("stack"); } });
     Object.defineProperty(hostile, "name", { get() { throw new Error("name"); } });
-    const fields = errorFields(hostile);
+    let fields;
+    assert.doesNotThrow(() => { fields = errorFields(hostile); });
     assert.equal(fields.error_name, "Error");
   });
 });

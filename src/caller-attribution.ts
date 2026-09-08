@@ -58,7 +58,8 @@ export function installRenderCallerAttribution(
   app: Express,
   options: RenderCallerAttributionOptions = {},
 ): CallerKey {
-  const configuredProbeKey = options.probeKey;
+  // A cleared environment value disables the probe; nonempty unsafe values still fail.
+  const configuredProbeKey = options.probeKey === "" ? undefined : options.probeKey;
   const probeKey = configuredProbeKey?.trim();
   if (configuredProbeKey !== undefined && (!probeKey || probeKey.length < 32)) {
     throw new Error(

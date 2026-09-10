@@ -69,10 +69,11 @@ envVars:
 ```
 
 Pass the value to the installer as shown above; never put it in source, docs,
-logs, chat, or a shared fleet secret. A configured credential shorter than 32
-characters (including a blank value) fails startup. A missing credential leaves
-attribution active and emits one `caller_attribution_probe_disabled` warning,
-but the app remains unverified until configuration is corrected.
+logs, chat, or a shared fleet secret. A missing or exactly empty (`""`) credential
+leaves attribution active and emits one `caller_attribution_probe_disabled`
+warning, but the app remains unverified until configuration is corrected.
+Nonempty credentials with fewer than 32 characters after trimming, including
+whitespace-only values, still fail startup.
 
 An authorized request carrying `x-rate-limit-probe` causes the installed
 middleware to emit `caller_attribution_probe`, including in an app that does not
@@ -314,7 +315,7 @@ npm ci
 npm run verify    # typecheck + tests + mutation testing
 ```
 
-`npm run mutation` breaks the implementation on purpose — 43 deliberate defects,
+`npm run mutation` breaks the implementation on purpose — 46 deliberate defects,
 each one drawn from a real review finding — and **requires the suite to catch
 every one**. This is the gate that matters. `v0.1.0` shipped 25 green tests that
 12 of 18 breakages walked straight through, including "always log status 500" and
@@ -325,6 +326,23 @@ now says so in writing.
 
 If you add behaviour, add a mutation for it. If a mutation survives, the suite
 has a hole at exactly that point — that is the finding, not a nuisance.
+
+The gate counts a kill only after a successful build and a completed test run
+with an assertion failure inside a test body. Compiler errors, load or setup
+failures, raw exceptions, cancellation, signals, and timeouts are invalid runs;
+they fail the gate and do not count as kills. The runner retains full command
+output, structured test events, applied source diffs, and restoration hashes in
+a fresh temporary directory, whose path it prints. Set `MULE_MUTATION_PROOF_DIR`
+to an empty directory to retain evidence at a chosen location. Diagnostics also
+appear in the CI log. Sources are restored after each case and rebuilt at exit.
+
+The September 7, 2026 run at `f6e8d3e` that reported 46/46 kills is withdrawn:
+its old runner accepted two compile failures and one raw rejection. Another
+43 outputs contained assertions, including a later-identified mixed assertion
+and raw-error case; these are not 43 accepted clean assertion kills. The two
+invalid catalog entries now
+produce runtime defects; the existing no-throw and no-reject behavioral tests
+use explicit assertions. These proof corrections do not change production code.
 
 Tests run against **real Express over a real socket**, not a stub. The original
 suite drove a hand-rolled fake response and could only confirm the mental model

@@ -37,7 +37,8 @@ function logAuthorizedProbe(request, selected, requestIdValue) {
 }
 /** Install the verified Render proxy topology and return its normalized caller key. */
 export function installRenderCallerAttribution(app, options = {}) {
-    const configuredProbeKey = options.probeKey;
+    // A cleared environment value disables the probe; nonempty unsafe values still fail.
+    const configuredProbeKey = options.probeKey === "" ? undefined : options.probeKey;
     const probeKey = configuredProbeKey?.trim();
     if (configuredProbeKey !== undefined && (!probeKey || probeKey.length < 32)) {
         throw new Error("installRenderCallerAttribution probe credential must be at least 32 characters");

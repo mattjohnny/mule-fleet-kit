@@ -1,6 +1,6 @@
 {
   "name": "@mule/fleet-kit",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Shared infrastructure for The Mule app fleet: caller attribution, structured logging, error telemetry, the terminal error handler, and job heartbeats.",
   "type": "module",
   "main": "dist/index.js",
@@ -12,7 +12,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",

@@ -15,6 +15,11 @@ in-app half.
 npm install github:mattjohnny/mule-fleet-kit#v0.4.0
 ```
 
+The next patch, **0.4.1**, is prepared in source and remains pending release
+approval and an immutable tag. The command above installs the existing release;
+its exactly empty probe key still fails startup. The corrected empty-key behavior
+described below is included in the proposed 0.4.1 release. See [CHANGELOG.md](CHANGELOG.md).
+
 **Do not use `v0.1.0.`** Review found a quadratic regex reachable from any route
 that puts request text in an error message (12.8 seconds of blocked event loop
 from one request), error messages reaching the log through multi-line stacks,

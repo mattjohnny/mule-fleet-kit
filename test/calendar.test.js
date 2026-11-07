@@ -1,14 +1,32 @@
 // The business calendar: the 4 a.m. Toronto business day and the thirteen-period
 // fiscal year (End of Period Reporting spec §1, ADR 0001).
 //
-// Expected values come from three independent sources, never from the module's
-// own arithmetic: worked dates from the glossary and spec, an explicit
-// statement of Toronto's daylight-saving rule (an oracle that does not use the
-// Intl time-zone database the module uses), and day-of-week facts checked
-// against a calendar.
+// Expected values come from independent sources, never from the module's own
+// arithmetic: worked dates from the glossary and spec (their weekdays checked
+// by hand against a calendar), and an explicit statement of Toronto's
+// daylight-saving rule (an oracle that does not use the Intl time-zone database
+// the module uses). The property helpers below do plain UTC date arithmetic,
+// as the module does; the worked dates are what pin that arithmetic down.
 
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it as test } from "node:test";
+
+// The module refuses fiscal years that are not thirteen contiguous
+// Tuesday-to-Monday periods. When a pre-fill or week-53 bug produces one, a
+// test that feeds it onward sees that refusal instead of a wrong date. The
+// refusal IS the wrong answer, so it is reported as an assertion failure, as
+// the repo's other no-throw tests do explicitly. Assertion failures pass
+// through unchanged.
+function it(name, body) {
+  test(name, () => {
+    try {
+      body();
+    } catch (error) {
+      if (error instanceof assert.AssertionError) throw error;
+      assert.fail(`the calendar refused a value it should have accepted: ${error?.name}: ${error?.message}`);
+    }
+  });
+}
 
 import { addWeek53, businessDayOf, periodOf, prefillFiscalYear } from "../dist/index.js";
 
@@ -126,6 +144,18 @@ describe("business day: 4 a.m. to 4 a.m. Toronto time", () => {
     }
   });
 
+  it("property: every minute of every New Year's night, 2007-2060", () => {
+    for (let year = 2008; year <= 2060; year += 1) {
+      // 10 p.m. Dec 30 UTC to 10 a.m. Jan 1 UTC, covering 4 a.m. EST on Jan 1.
+      const newYear = Date.UTC(year, 0, 1);
+      for (let ms = newYear - 26 * HOUR; ms <= newYear + 10 * HOUR; ms += 60_000) {
+        for (const edge of [ms, ms - 1]) {
+          assert.equal(businessDayOf(edge), oracleBusinessDay(edge), new Date(edge).toISOString());
+        }
+      }
+    }
+  });
+
   it("property: business days are 24 hours, except 23 in spring and 25 in fall", () => {
     // Walk the 4 a.m. boundaries of 2026 by hour and measure each day.
     const lengths = new Map();
@@ -222,7 +252,7 @@ describe("pre-fill: thirteen 28-day Tuesday-to-Monday periods from P1's start", 
       });
       assert.equal(daysBetween(p1Start, year.periods[12].end) + 1, 364, p1Start);
       // Named by the calendar year it ends in.
-      assert.equal(year.fiscalYear, Number(year.periods[12].end.slice(0, 4)), p1Start);
+      assert.equal(year.fiscalYear, Number(plusDays(p1Start, 363).slice(0, 4)), p1Start);
     }
   });
 
@@ -269,6 +299,21 @@ describe("53-week year: the extra week goes on the end of P13", () => {
     assert.equal(next.fiscalYear, 2028);
   });
 
+  it("hands back a frozen year that shares nothing with a stored one", () => {
+    // An app passes in years read back from its database: plain, unfrozen.
+    const stored = JSON.parse(JSON.stringify(prefillFiscalYear("2026-10-13")));
+    const year = addWeek53(stored);
+    assert.ok(Object.isFrozen(year) && Object.isFrozen(year.periods));
+    assert.ok(year.periods.every((p) => Object.isFrozen(p)));
+    stored.periods[0].start = "2026-10-06";
+    assert.equal(year.periods[0].start, "2026-10-13");
+  });
+
+  it("refuses a stored year whose name is not the calendar year P13 ends in", () => {
+    const stored = { ...prefillFiscalYear("2026-10-13"), fiscalYear: 2026 };
+    assert.throws(() => addWeek53(stored), RangeError);
+  });
+
   it("refuses a year that already has its 53rd week", () => {
     const year = addWeek53(prefillFiscalYear("2026-10-13"));
     assert.throws(() => addWeek53(year), RangeError);
@@ -294,7 +339,7 @@ describe("53-week year: the extra week goes on the end of P13", () => {
         if (index > 0) assert.equal(daysBetween(year.periods[index - 1].end, p.start), 1);
       });
       assert.equal(daysBetween(p1Start, year.periods[12].end) + 1, 371, p1Start);
-      assert.equal(year.fiscalYear, Number(year.periods[12].end.slice(0, 4)), p1Start);
+      assert.equal(year.fiscalYear, Number(plusDays(p1Start, 370).slice(0, 4)), p1Start);
     }
   });
 });
@@ -353,6 +398,14 @@ describe("period of a business day, for a given calendar", () => {
 
   it("takes a single fiscal year as a calendar too", () => {
     assert.equal(periodOf("2026-11-07", fy2027).period, 1);
+  });
+
+  it("refuses a stored year whose name is not the calendar year P13 ends in", () => {
+    assert.throws(() => periodOf("2026-11-07", [fy2026, { ...fy2027, fiscalYear: 2026 }]), RangeError);
+  });
+
+  it("its answer is frozen", () => {
+    assert.ok(Object.isFrozen(periodOf("2026-11-07", calendar)));
   });
 
   it("refuses a calendar whose fiscal years overlap", () => {

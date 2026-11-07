@@ -208,7 +208,8 @@ as soon as its period elapses.
 ## Business calendar
 
 One stateless module for the fleet's trading day and the thirteen-period fiscal
-year (day-one standard 6; End of Period Reporting ADR 0001). It does arithmetic
+year (End of Period Reporting ADR 0001; the business-day and period parts of
+day-one standard 6, not yet Toronto weeks, quarters or location reportability). It does arithmetic
 only: the confirmed fiscal-year dates are data an app stores and passes in.
 
 ```ts
@@ -240,11 +241,14 @@ periodOf("2026-11-07", [fy2027]); // { fiscalYear: 2027, period: 1, start: "2026
   cover it. A period's first Tuesday and last Monday both belong to it.
 - Every function refuses input that is not a real `YYYY-MM-DD` date, and any
   fiscal year that is not thirteen contiguous Tuesday-to-Monday periods
-  numbered 1 to 13; `periodOf` also refuses fiscal years that overlap. Period
+  numbered 1 to 13 and named by the calendar year its P13 ends in; `periodOf`
+  also refuses fiscal years that overlap. Period
   lengths other than P13's are not checked, because Ops may confirm dates other
   than the pre-fill's. Rules about who may change dates, and when, belong to the
   app that stores them.
-- Results are frozen; no function changes what it is given.
+- Results are frozen and share no objects with what was passed in, so a year
+  read back from a database can be handed straight in; no function changes its
+  input.
 
 ## Events
 
@@ -362,8 +366,8 @@ npm ci
 npm run verify    # typecheck + tests + mutation testing
 ```
 
-`npm run mutation` breaks the implementation on purpose — 46 deliberate defects,
-each one drawn from a real review finding — and **requires the suite to catch
+`npm run mutation` breaks the implementation on purpose — 61 deliberate defects,
+each one drawn from a real review finding or a rule the code guards — and **requires the suite to catch
 every one**. This is the gate that matters. `v0.1.0` shipped 25 green tests that
 12 of 18 breakages walked straight through, including "always log status 500" and
 "read the error message as well as the stack". A suite that has never been

@@ -355,8 +355,8 @@ const MUTATIONS = [
   {
     name: "a fiscal year is named by the year it starts in",
     file: "calendar.ts",
-    from: "    fiscalYear: Number(periods[periods.length - 1].end.slice(0, 4)),",
-    to: "    fiscalYear: Number(periods[0].start.slice(0, 4)),",
+    from: "  return Number(periods[periods.length - 1].end.slice(0, 4));",
+    to: "  return Number(periods[0].start.slice(0, 4));",
   },
   {
     name: "a business day that is not a real date is accepted",
@@ -394,6 +394,18 @@ const MUTATIONS = [
     file: "calendar.ts",
     from: "    if (index > 0 && span.start <= spans[index - 1].end) {",
     to: "    if (false) {",
+  },
+  {
+    name: "a stored fiscal year with the wrong name is answered as-is",
+    file: "calendar.ts",
+    from: "  if (fiscalYear !== yearEndingIn(periods as readonly Period[])) {",
+    to: "  if (false) {",
+  },
+  {
+    name: "a new fiscal year shares the caller's period objects",
+    file: "calendar.ts",
+    from: "    periods: Object.freeze(periods.map(({ period, start, end }) => Object.freeze({ period, start, end }))),",
+    to: "    periods: Object.freeze(periods),",
   },
   {
     name: "a fiscal year with a gap or overlap between periods is accepted",

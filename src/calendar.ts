@@ -76,11 +76,11 @@ export function prefillFiscalYear(p1Start: BusinessDay): FiscalYear {
   }
   const periods = Array.from({ length: PERIODS }, (_, index) => {
     const start = first + index * PERIOD_DAYS * DAY_MS;
-    return Object.freeze({
+    return {
       period: index + 1,
       start: toDay(start),
       end: toDay(start + (PERIOD_DAYS - 1) * DAY_MS),
-    });
+    };
   });
   return fiscalYearOf(periods);
 }
@@ -97,7 +97,7 @@ export function addWeek53(year: FiscalYear): FiscalYear {
   if (p13End - parseDay(p13.start, "addWeek53") + DAY_MS > PERIOD_DAYS * DAY_MS) {
     throw new RangeError(`FY${year.fiscalYear} P13 is already longer than four weeks`);
   }
-  const longer = Object.freeze({ period: PERIODS, start: p13.start, end: toDay(p13End + WEEK_53_DAYS * DAY_MS) });
+  const longer = { period: PERIODS, start: p13.start, end: toDay(p13End + WEEK_53_DAYS * DAY_MS) };
   return fiscalYearOf([...periods.slice(0, PERIODS - 1), longer]);
 }
 
@@ -147,8 +147,9 @@ export function periodOf(
 }
 
 // A fiscal year's periods, refusing anything that is not thirteen contiguous
-// Tuesday-to-Monday periods numbered 1 to 13. Lengths are not checked: Ops may
-// confirm dates other than the pre-fill's.
+// Tuesday-to-Monday periods numbered 1 to 13 and named by the calendar year P13
+// ends in. Lengths are not checked: Ops may confirm dates other than the
+// pre-fill's.
 function readFiscalYear(year: unknown, caller: string): readonly Period[] {
   const periods = (year as { periods?: unknown } | null | undefined)?.periods;
   if (typeof year !== "object" || year === null || !Array.isArray(periods)) {
@@ -170,13 +171,22 @@ function readFiscalYear(year: unknown, caller: string): readonly Period[] {
     }
     previousEnd = end;
   });
+  const fiscalYear = (year as { fiscalYear?: unknown }).fiscalYear;
+  if (fiscalYear !== yearEndingIn(periods as readonly Period[])) {
+    throw new RangeError(`${caller}: a fiscal year is named by the calendar year its P13 ends in`);
+  }
   return periods as readonly Period[];
 }
 
+function yearEndingIn(periods: readonly Period[]): number {
+  return Number(periods[periods.length - 1].end.slice(0, 4));
+}
+
+// A new, frozen fiscal year sharing no objects with what the caller passed in.
 function fiscalYearOf(periods: readonly Period[]): FiscalYear {
   return Object.freeze({
-    fiscalYear: Number(periods[periods.length - 1].end.slice(0, 4)),
-    periods: Object.freeze(periods),
+    fiscalYear: yearEndingIn(periods),
+    periods: Object.freeze(periods.map(({ period, start, end }) => Object.freeze({ period, start, end }))),
   });
 }
 

@@ -1,8 +1,8 @@
 # @mule/fleet-kit
 
 Shared infrastructure for The Mule's app fleet: Render caller attribution,
-structured logging, error telemetry, the terminal error handler, and
-background-job heartbeats.
+structured logging, error telemetry, the terminal error handler,
+background-job heartbeats, and the business calendar.
 
 Built for [`mule-fleet-docs`](https://github.com/mattjohnny/mule-fleet-docs) job 3.
 The alerting side of that job (Better Stack log source, `/health` monitors, the
@@ -15,10 +15,11 @@ in-app half.
 npm install github:mattjohnny/mule-fleet-kit#v0.4.0
 ```
 
-The next patch, **0.4.1**, is prepared in source and remains pending release
-approval and an immutable tag. The command above installs the existing release;
-its exactly empty probe key still fails startup. The corrected empty-key behavior
-described below is included in the proposed 0.4.1 release. See [CHANGELOG.md](CHANGELOG.md).
+The next minor, **0.5.0**, adds the [business calendar](#business-calendar) and
+carries the never-tagged 0.4.1 changes. It is installable only once `v0.5.0` is
+tagged on its reviewed merge commit; until then the command above installs the
+existing release, whose exactly empty probe key still fails startup and which
+has no calendar. See [CHANGELOG.md](CHANGELOG.md).
 
 **Do not use `v0.1.0.`** Review found a quadratic regex reachable from any route
 that puts request text in an error message (12.8 seconds of blocked event loop
@@ -204,6 +205,51 @@ slack, and put its URL in the app's environment. **Leave it paused until the pin
 is deployed** — an unpaused heartbeat with nothing pinging it raises an incident
 as soon as its period elapses.
 
+## Business calendar
+
+One stateless module for the fleet's trading day and the thirteen-period fiscal
+year (End of Period Reporting ADR 0001; the business-day and period parts of
+day-one standard 6, not yet Toronto weeks, quarters or location reportability). It does arithmetic
+only: the confirmed fiscal-year dates are data an app stores and passes in.
+
+```ts
+import { addWeek53, businessDayOf, periodOf, prefillFiscalYear } from "@mule/fleet-kit";
+
+businessDayOf(new Date("2026-10-13T05:30:00Z")); // "2026-10-12": 1:30 a.m. is Monday's trading day
+
+const fy2027 = prefillFiscalYear("2026-10-13");
+// { fiscalYear: 2027, periods: [{ period: 1, start: "2026-10-13", end: "2026-11-09" }, ...
+//   { period: 13, start: "2027-09-14", end: "2027-10-11" }] }
+
+addWeek53(fy2027).periods[12]; // { period: 13, start: "2027-09-14", end: "2027-10-18" }
+
+periodOf("2026-11-07", [fy2027]); // { fiscalYear: 2027, period: 1, start: "2026-10-13", end: "2026-11-09" }
+```
+
+- **A business day** runs 4 a.m. to 4 a.m. Toronto time and is written as the
+  `YYYY-MM-DD` it starts on. `businessDayOf` takes a `Date` or epoch
+  milliseconds. The day is 23 hours long when clocks go forward and 25 when
+  they go back.
+- **`prefillFiscalYear(p1Start)`** gives thirteen straight 28-day periods,
+  Tuesday to Monday, 364 days, from a Tuesday. The year is named by the calendar
+  year its P13 ends in. It refuses a start that is not a Tuesday.
+- **`addWeek53(year)`** returns a new year whose P13 ends seven days later;
+  nothing else moves. It refuses a year whose P13 is already longer than four
+  weeks.
+- **`periodOf(day, calendar)`** takes one fiscal year or several and answers the
+  period that business day is in, or `undefined` when the calendar does not
+  cover it. A period's first Tuesday and last Monday both belong to it.
+- Every function refuses input that is not a real `YYYY-MM-DD` date, and any
+  fiscal year that is not thirteen contiguous Tuesday-to-Monday periods
+  numbered 1 to 13 and named by the calendar year its P13 ends in; `periodOf`
+  also refuses fiscal years that overlap. Period
+  lengths other than P13's are not checked, because Ops may confirm dates other
+  than the pre-fill's. Rules about who may change dates, and when, belong to the
+  app that stores them.
+- Results are frozen and share no objects with what was passed in, so a year
+  read back from a database can be handed straight in; no function changes its
+  input.
+
 ## Events
 
 | event | level | when |
@@ -320,8 +366,8 @@ npm ci
 npm run verify    # typecheck + tests + mutation testing
 ```
 
-`npm run mutation` breaks the implementation on purpose — 46 deliberate defects,
-each one drawn from a real review finding — and **requires the suite to catch
+`npm run mutation` breaks the implementation on purpose — 61 deliberate defects,
+each one drawn from a real review finding or a rule the code guards — and **requires the suite to catch
 every one**. This is the gate that matters. `v0.1.0` shipped 25 green tests that
 12 of 18 breakages walked straight through, including "always log status 500" and
 "read the error message as well as the stack". A suite that has never been

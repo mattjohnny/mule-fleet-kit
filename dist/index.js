@@ -31,4 +31,5 @@ export { buildSha, installRequestTelemetry, logEvent, redactPath, requestId, sta
 export { errorFields, errorSite, installErrorTelemetry, installProcessErrorHandlers, safeErrorName, } from "./errors.js";
 export { installTerminalErrorHandler } from "./terminal-error.js";
 export { pingHeartbeat, runTrackedJob, } from "./jobs.js";
+export { addWeek53, businessDayOf, periodOf, prefillFiscalYear, } from "./calendar.js";
 export { installRenderCallerAttribution, } from "./caller-attribution.js";

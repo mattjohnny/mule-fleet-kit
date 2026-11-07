@@ -322,6 +322,97 @@ const MUTATIONS = [
     from: "    return selected;",
     to: '    return "one-caller";',
   },
+  {
+    name: "the business day turns over at 3 a.m., not 4 a.m.",
+    file: "calendar.ts",
+    from: "const BOUNDARY_HOUR = 4;",
+    to: "const BOUNDARY_HOUR = 3;",
+  },
+  {
+    name: "4 a.m. exactly still counts as the day before",
+    file: "calendar.ts",
+    from: "  const before = Number(parts.hour) < BOUNDARY_HOUR;",
+    to: "  const before = Number(parts.hour) <= BOUNDARY_HOUR;",
+  },
+  {
+    name: "the business day ignores daylight time (fixed EST)",
+    file: "calendar.ts",
+    from: "  timeZone: ZONE,",
+    to: '  timeZone: "Etc/GMT+5",',
+  },
+  {
+    name: "a pre-filled period ends a day late (29 days, overlapping the next)",
+    file: "calendar.ts",
+    from: "      end: toDay(start + (PERIOD_DAYS - 1) * DAY_MS),",
+    to: "      end: toDay(start + PERIOD_DAYS * DAY_MS),",
+  },
+  {
+    name: "a fiscal year can be pre-filled from a day that is not a Tuesday",
+    file: "calendar.ts",
+    from: "  if (new Date(first).getUTCDay() !== TUESDAY) {",
+    to: "  if (false) {",
+  },
+  {
+    name: "a fiscal year is named by the year it starts in",
+    file: "calendar.ts",
+    from: "  return Number(periods[periods.length - 1].end.slice(0, 4));",
+    to: "  return Number(periods[0].start.slice(0, 4));",
+  },
+  {
+    name: "a business day that is not a real date is accepted",
+    file: "calendar.ts",
+    from: "  if (!Number.isFinite(ms) || toDay(ms) !== day) {",
+    to: "  if (!Number.isFinite(ms)) {",
+  },
+  {
+    name: "the 53rd week adds six days, not seven",
+    file: "calendar.ts",
+    from: "const WEEK_53_DAYS = 7;",
+    to: "const WEEK_53_DAYS = 6;",
+  },
+  {
+    name: "the 53rd week moves every period, not only P13's end",
+    file: "calendar.ts",
+    from: "  return fiscalYearOf([...periods.slice(0, PERIODS - 1), longer]);",
+    to:
+      "  return fiscalYearOf(periods.map((p) => ({ ...p, start: toDay(parseDay(p.start, \"x\") + WEEK_53_DAYS * DAY_MS), end: toDay(parseDay(p.end, \"x\") + WEEK_53_DAYS * DAY_MS) })));",
+  },
+  {
+    name: "a 53rd week can be added twice",
+    file: "calendar.ts",
+    from: "  if (p13End - parseDay(p13.start, \"addWeek53\") + DAY_MS > PERIOD_DAYS * DAY_MS) {",
+    to: "  if (false) {",
+  },
+  {
+    name: "a period's last Monday belongs to the next period",
+    file: "calendar.ts",
+    from: "  const period = span.periods.find((candidate) => parseDay(candidate.end, \"periodOf\") >= target)!;",
+    to: "  const period = span.periods.find((candidate) => parseDay(candidate.end, \"periodOf\") > target) ?? span.periods[0];",
+  },
+  {
+    name: "a calendar with overlapping fiscal years is accepted",
+    file: "calendar.ts",
+    from: "    if (index > 0 && span.start <= spans[index - 1].end) {",
+    to: "    if (false) {",
+  },
+  {
+    name: "a stored fiscal year with the wrong name is answered as-is",
+    file: "calendar.ts",
+    from: "  if (fiscalYear !== yearEndingIn(periods as readonly Period[])) {",
+    to: "  if (false) {",
+  },
+  {
+    name: "a new fiscal year shares the caller's period objects",
+    file: "calendar.ts",
+    from: "    periods: Object.freeze(periods.map(({ period, start, end }) => Object.freeze({ period, start, end }))),",
+    to: "    periods: Object.freeze(periods),",
+  },
+  {
+    name: "a fiscal year with a gap or overlap between periods is accepted",
+    file: "calendar.ts",
+    from: "    if (previousEnd !== undefined && start !== previousEnd + DAY_MS) {",
+    to: "    if (false) {",
+  },
 ];
 
 // Keep evidence outside the package, and never overwrite an earlier campaign.
@@ -389,7 +480,7 @@ function suite(name) {
     "--test-reporter-destination=stdout", `--test-reporter-destination=${eventPath}`,
     "test/express.test.js", "test/fatal.test.js", "test/hygiene.test.js",
     "test/jobs.test.js", "test/streams.test.js", "test/caller-attribution.test.js",
-    "test/terminal-error.test.js",
+    "test/terminal-error.test.js", "test/calendar.test.js",
   ]);
   let events;
   try {

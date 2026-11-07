@@ -1,6 +1,27 @@
 # Changelog
 
-## 0.4.1 — proposed, unreleased
+## 0.5.0 — proposed, unreleased
+
+A minor release adding the fleet's first business-calendar module (End of
+Period Reporting ticket 02, ADR 0001). No existing export changes; no app has to
+adopt it.
+
+- `businessDayOf(instant)`: the 4 a.m. Toronto business day, correct across both
+  daylight-saving changes.
+- `prefillFiscalYear(p1Start)`: thirteen 28-day Tuesday-to-Monday periods from a
+  Tuesday, named by the calendar year P13 ends in.
+- `addWeek53(year)`: lengthens P13 alone by seven days.
+- `periodOf(businessDay, calendar)`: the period a business day falls in, for one
+  fiscal year or several.
+- Property tests across DST changes, year ends and week 53, checked against an
+  explicit statement of Toronto's daylight-saving rule rather than the time-zone
+  database the module uses; thirteen new breakages in the mutation gate.
+
+0.4.1 was never tagged, so 0.5.0 also carries its changes below. The `v0.5.0`
+tag goes on the reviewed merge commit containing version 0.5.0 and its committed
+`dist/`; do not retarget `v0.4.0`.
+
+## 0.4.1 — prepared, never tagged (carried in 0.5.0)
 
 This patch is prepared for owner review. It does not authorize a merge, tag,
 publication, or consumer update. Distribution continues through immutable GitHub

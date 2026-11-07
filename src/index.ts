@@ -55,6 +55,17 @@ export {
 } from "./jobs.js";
 
 export {
+  addWeek53,
+  businessDayOf,
+  periodOf,
+  prefillFiscalYear,
+  type BusinessDay,
+  type CalendarPeriod,
+  type FiscalYear,
+  type Period,
+} from "./calendar.js";
+
+export {
   installRenderCallerAttribution,
   type CallerKey,
   type RenderCallerAttributionOptions,

@@ -1,25 +1,19 @@
 # @mule/fleet-kit
 
-Shared infrastructure for The Mule's app fleet: Render caller attribution,
-structured logging, error telemetry, the terminal error handler,
-background-job heartbeats, and the business calendar.
-
-Built for [`mule-fleet-docs`](https://github.com/mattjohnny/mule-fleet-docs) job 3.
-The alerting side of that job (Better Stack log source, `/health` monitors, the
-`app_error_5xx` alert) is already live and needs no app code; this package is the
-in-app half.
+Shared infrastructure for The Mule's app fleet. Use the kit's Render caller
+attribution, structured logging, error telemetry, terminal error handler,
+tracked jobs and heartbeats, and business calendar across apps. Each app owns
+its routes, thresholds, roles, and responses.
 
 ## Install
 
 ```bash
-npm install github:mattjohnny/mule-fleet-kit#v0.4.0
+npm install github:mattjohnny/mule-fleet-kit#v0.5.0
 ```
 
-The next minor, **0.5.0**, adds the [business calendar](#business-calendar) and
-carries the never-tagged 0.4.1 changes. It is installable only once `v0.5.0` is
-tagged on its reviewed merge commit; until then the command above installs the
-existing release, whose exactly empty probe key still fails startup and which
-has no calendar. See [CHANGELOG.md](CHANGELOG.md).
+**v0.5.0** was released on 2026-11-07. It adds the
+[business calendar](#business-calendar) and carries the 0.4.1 changes listed in
+the [changelog](CHANGELOG.md).
 
 **Do not use `v0.1.0.`** Review found a quadratic regex reachable from any route
 that puts request text in an error message (12.8 seconds of blocked event loop

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0 — proposed, unreleased
+## 0.5.0 — released 2026-11-07
 
 A minor release adding the fleet's first business-calendar module (End of
 Period Reporting ticket 02, ADR 0001). No existing export changes; no app has to
@@ -17,9 +17,10 @@ adopt it.
   explicit statement of Toronto's daylight-saving rule rather than the time-zone
   database the module uses; thirteen new breakages in the mutation gate.
 
-0.4.1 was never tagged, so 0.5.0 also carries its changes below. The `v0.5.0`
-tag goes on the reviewed merge commit containing version 0.5.0 and its committed
-`dist/`; do not retarget `v0.4.0`.
+0.4.1 was never tagged, so 0.5.0 also carries its changes below. The
+[`v0.5.0` tag](https://github.com/mattjohnny/mule-fleet-kit/tree/v0.5.0) points to
+the reviewed merge commit `b1c0870` containing version 0.5.0 and its committed
+`dist/`.
 
 ## 0.4.1 — prepared, never tagged (carried in 0.5.0)
 
